@@ -90,6 +90,8 @@ interface ProjectScriptsControlProps {
   scripts: ProjectScript[];
   keybindings: ResolvedKeybindingsConfig;
   preferredScriptId?: string | null;
+  /** When true, always show the "Add action" label text instead of using responsive container queries. */
+  showLabel?: boolean;
   onRunScript: (script: ProjectScript) => void;
   onAddScript: (input: NewProjectScriptInput) => Promise<void> | void;
   onUpdateScript: (scriptId: string, input: NewProjectScriptInput) => Promise<void> | void;
@@ -151,6 +153,7 @@ export default function ProjectScriptsControl({
   scripts,
   keybindings,
   preferredScriptId = null,
+  showLabel = false,
   onRunScript,
   onAddScript,
   onUpdateScript,
@@ -277,11 +280,19 @@ export default function ProjectScriptsControl({
             title={`Run ${primaryScript.name}`}
           >
             <ScriptIcon icon={primaryScript.icon} />
-            <span className="sr-only @3xl/header-actions:not-sr-only @3xl/header-actions:ml-0.5">
+            <span
+              className={
+                showLabel
+                  ? "sr-only lg:not-sr-only lg:ml-0.5"
+                  : "sr-only @3xl/header-actions:not-sr-only @3xl/header-actions:ml-0.5"
+              }
+            >
               {primaryScript.name}
             </span>
           </Button>
-          <GroupSeparator className="hidden @3xl/header-actions:block" />
+          <GroupSeparator
+            className={showLabel ? "hidden lg:block" : "hidden @3xl/header-actions:block"}
+          />
           <Menu highlightItemOnHover={false}>
             <MenuTrigger
               render={<Button size="icon-xs" variant="outline" aria-label="Script actions" />}
@@ -342,7 +353,13 @@ export default function ProjectScriptsControl({
       ) : (
         <Button size="xs" variant="outline" onClick={openAddDialog} title="Add action">
           <PlusIcon className="size-3.5" />
-          <span className="sr-only @3xl/header-actions:not-sr-only @3xl/header-actions:ml-0.5">
+          <span
+            className={
+              showLabel
+                ? "sr-only lg:not-sr-only lg:ml-0.5"
+                : "sr-only @3xl/header-actions:not-sr-only @3xl/header-actions:ml-0.5"
+            }
+          >
             Add action
           </span>
         </Button>

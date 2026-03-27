@@ -41,6 +41,8 @@ export const gitMutationKeys = {
   stashPop: (cwd: string | null) => ["git", "mutation", "stash-pop", cwd] as const,
   stashDrop: (cwd: string | null) => ["git", "mutation", "stash-drop", cwd] as const,
   stashRestoreFile: (cwd: string | null) => ["git", "mutation", "stash-restore-file", cwd] as const,
+  softReset: (cwd: string | null) => ["git", "mutation", "soft-reset", cwd] as const,
+  revertCommit: (cwd: string | null) => ["git", "mutation", "revert-commit", cwd] as const,
   generateCommitMessage: (cwd: string | null) =>
     ["git", "mutation", "generate-commit-message", cwd] as const,
 };
@@ -523,6 +525,42 @@ export function gitStashRestoreFileMutationOptions(input: {
       const api = ensureNativeApi();
       if (!input.cwd) throw new Error("Git stash restore file is unavailable.");
       return api.git.stashRestoreFile({ cwd: input.cwd, index, filePath });
+    },
+    onSettled: async () => {
+      await invalidateGitQueries(input.queryClient);
+    },
+  });
+}
+
+// ── Soft Reset / Revert ──────────────────────────────────────────────
+
+export function gitSoftResetMutationOptions(input: {
+  cwd: string | null;
+  queryClient: QueryClient;
+}) {
+  return mutationOptions({
+    mutationKey: gitMutationKeys.softReset(input.cwd),
+    mutationFn: async (sha: string) => {
+      const api = ensureNativeApi();
+      if (!input.cwd) throw new Error("Git soft reset is unavailable.");
+      return api.git.softReset({ cwd: input.cwd, sha });
+    },
+    onSettled: async () => {
+      await invalidateGitQueries(input.queryClient);
+    },
+  });
+}
+
+export function gitRevertCommitMutationOptions(input: {
+  cwd: string | null;
+  queryClient: QueryClient;
+}) {
+  return mutationOptions({
+    mutationKey: gitMutationKeys.revertCommit(input.cwd),
+    mutationFn: async (sha: string) => {
+      const api = ensureNativeApi();
+      if (!input.cwd) throw new Error("Git revert commit is unavailable.");
+      return api.git.revertCommit({ cwd: input.cwd, sha });
     },
     onSettled: async () => {
       await invalidateGitQueries(input.queryClient);

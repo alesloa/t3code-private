@@ -455,6 +455,7 @@ export const GitLogEntry = Schema.Struct({
   authorEmail: Schema.String,
   authorDate: Schema.String,
   subject: Schema.String,
+  body: Schema.String,
   parents: Schema.Array(Schema.String),
   refs: Schema.Array(Schema.String),
 });
@@ -510,3 +511,19 @@ export const GitStashRestoreFileInput = Schema.Struct({
   filePath: TrimmedNonEmptyStringSchema,
 });
 export type GitStashRestoreFileInput = typeof GitStashRestoreFileInput.Type;
+
+// ── Soft Reset (Uncommit) ────────────────────────────────────────────
+
+export const GitSoftResetInput = Schema.Struct({
+  cwd: TrimmedNonEmptyStringSchema,
+  sha: TrimmedNonEmptyStringSchema,
+});
+export type GitSoftResetInput = typeof GitSoftResetInput.Type;
+
+// ── Revert Commit ────────────────────────────────────────────────────
+
+export const GitRevertCommitInput = Schema.Struct({
+  cwd: TrimmedNonEmptyStringSchema,
+  sha: TrimmedNonEmptyStringSchema,
+});
+export type GitRevertCommitInput = typeof GitRevertCommitInput.Type;

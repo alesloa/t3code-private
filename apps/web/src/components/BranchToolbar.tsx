@@ -25,6 +25,7 @@ interface BranchToolbarProps {
   envLocked: boolean;
   onCheckoutPullRequestRequest?: (reference: string) => void;
   onComposerFocusRequest?: () => void;
+  children?: React.ReactNode;
 }
 
 export default function BranchToolbar({
@@ -33,6 +34,7 @@ export default function BranchToolbar({
   envLocked,
   onCheckoutPullRequestRequest,
   onComposerFocusRequest,
+  children,
 }: BranchToolbarProps) {
   const threads = useStore((store) => store.threads);
   const projects = useStore((store) => store.projects);
@@ -154,6 +156,8 @@ export default function BranchToolbar({
           </SelectPopup>
         </Select>
       )}
+
+      {children}
 
       <BranchToolbarBranchSelector
         activeProjectCwd={activeProject.cwd}

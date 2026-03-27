@@ -36,6 +36,8 @@ import type {
   GitStashShowFileResult,
   GitStashShowFilesResult,
   GitStashRestoreFileInput,
+  GitSoftResetInput,
+  GitRevertCommitInput,
   GitGenerateCommitMessageInput,
   GitGenerateCommitMessageResult,
   GitStatusDetailedInput,
@@ -208,6 +210,9 @@ export interface NativeApi {
     stashShowFiles: (input: GitStashShowInput) => Promise<GitStashShowFilesResult>;
     stashShowFile: (input: GitStashShowFileInput) => Promise<GitStashShowFileResult>;
     stashRestoreFile: (input: GitStashRestoreFileInput) => Promise<void>;
+    // Soft reset / revert API
+    softReset: (input: GitSoftResetInput) => Promise<void>;
+    revertCommit: (input: GitRevertCommitInput) => Promise<void>;
     // Generate commit message API
     generateCommitMessage: (
       input: GitGenerateCommitMessageInput,

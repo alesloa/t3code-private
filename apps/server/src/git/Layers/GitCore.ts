@@ -2165,13 +2165,23 @@ export const makeGitCore = (options?: { executeOverride?: GitCoreShape["execute"
         input.filePath,
       ]).pipe(Effect.asVoid);
 
+    const softResetHead: GitCoreShape["softResetHead"] = (input) =>
+      runGitStdout("GitCore.softResetHead", input.cwd, ["reset", "--soft", input.sha]).pipe(
+        Effect.asVoid,
+      );
+
+    const revertCommit: GitCoreShape["revertCommit"] = (input) =>
+      runGitStdout("GitCore.revertCommit", input.cwd, ["revert", "--no-edit", input.sha]).pipe(
+        Effect.asVoid,
+      );
+
     const log: GitCoreShape["log"] = (input) => {
       const maxCount = input.maxCount ?? 50;
       const skip = input.skip ?? 0;
       const args: string[] = [
         "log",
         "--topo-order",
-        `--format=%H%x00%h%x00%an%x00%ae%x00%aI%x00%s%x00%P%x00%D`,
+        `--format=%H%x00%h%x00%an%x00%ae%x00%aI%x00%s%x00%b%x00%P%x00%D%x1e`,
         `--max-count=${maxCount}`,
         `--skip=${skip}`,
       ];
@@ -2182,9 +2192,9 @@ export const makeGitCore = (options?: { executeOverride?: GitCoreShape["execute"
       }
       return runGitStdout("GitCore.log", input.cwd, args).pipe(
         Effect.map((stdout) => {
-          const lines = stdout.split("\n").filter((l) => l.length > 0);
-          const entries = lines.map((line) => {
-            const parts = line.split("\0");
+          const records = stdout.split("\x1e").filter((r) => r.trim().length > 0);
+          const entries = records.map((record) => {
+            const parts = record.trim().split("\0");
             return {
               sha: parts[0] ?? "",
               shortSha: parts[1] ?? "",
@@ -2192,8 +2202,9 @@ export const makeGitCore = (options?: { executeOverride?: GitCoreShape["execute"
               authorEmail: parts[3] ?? "",
               authorDate: parts[4] ?? "",
               subject: parts[5] ?? "",
-              parents: (parts[6] ?? "").split(" ").filter((s) => s.length > 0),
-              refs: (parts[7] ?? "")
+              body: (parts[6] ?? "").trim(),
+              parents: (parts[7] ?? "").split(" ").filter((s) => s.length > 0),
+              refs: (parts[8] ?? "")
                 .split(",")
                 .map((r) => r.trim())
                 .filter((r) => r.length > 0),
@@ -2239,6 +2250,8 @@ export const makeGitCore = (options?: { executeOverride?: GitCoreShape["execute"
       stashShowFiles,
       stashShowFile,
       stashRestoreFile,
+      softResetHead,
+      revertCommit,
       listWorktrees,
       log,
     } satisfies GitCoreShape;

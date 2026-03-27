@@ -1102,6 +1102,14 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
         const body = stripRequestTag(request.body);
         return yield* git.stashRestoreFile(body);
       }
+      case WS_METHODS.gitSoftReset: {
+        const body = stripRequestTag(request.body);
+        return yield* git.softResetHead(body);
+      }
+      case WS_METHODS.gitRevertCommit: {
+        const body = stripRequestTag(request.body);
+        return yield* git.revertCommit(body);
+      }
 
       case WS_METHODS.terminalOpen: {
         const body = stripRequestTag(request.body);

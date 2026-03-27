@@ -36,6 +36,8 @@ import type {
   GitStashShowFileResult,
   GitStashShowFilesResult,
   GitStashRestoreFileInput,
+  GitSoftResetInput,
+  GitRevertCommitInput,
   GitStatusDetailedInput,
   GitStatusDetailedResult,
   GitStatusInput,
@@ -372,6 +374,16 @@ export interface GitCoreShape {
   readonly listWorktrees: (
     input: GitListWorktreesInput,
   ) => Effect.Effect<GitListWorktreesResult, GitCommandError>;
+
+  /**
+   * Soft-reset HEAD to a given commit (uncommit, keeping changes staged).
+   */
+  readonly softResetHead: (input: GitSoftResetInput) => Effect.Effect<void, GitCommandError>;
+
+  /**
+   * Create a revert commit for the given SHA.
+   */
+  readonly revertCommit: (input: GitRevertCommitInput) => Effect.Effect<void, GitCommandError>;
 
   /**
    * Read commit log entries for graph visualization.
