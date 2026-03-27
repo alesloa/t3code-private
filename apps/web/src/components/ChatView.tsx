@@ -62,6 +62,7 @@ import {
   setPendingUserInputCustomAnswer,
   type PendingUserInputDraftAnswer,
 } from "../pendingUserInput";
+import { useFileEditorStore } from "../fileEditorStore";
 import { useStore } from "../store";
 import {
   buildPlanImplementationThreadTitle,
@@ -1182,7 +1183,12 @@ export default function ChatView({ threadId }: ChatViewProps) {
     () => shortcutLabelForCommand(keybindings, "diff.toggle"),
     [keybindings],
   );
+  const closeEditorPanel = useFileEditorStore((s) => s.closePanel);
   const onToggleDiff = useCallback(() => {
+    // Mutual exclusion: close file editor when opening diff
+    if (!diffOpen) {
+      closeEditorPanel(threadId);
+    }
     void navigate({
       to: "/$threadId",
       params: { threadId },
@@ -1192,7 +1198,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
         return diffOpen ? { ...rest, diff: undefined } : { ...rest, diff: "1" };
       },
     });
-  }, [diffOpen, navigate, threadId]);
+  }, [diffOpen, navigate, threadId, closeEditorPanel]);
 
   const envLocked = Boolean(
     activeThread &&
@@ -3561,6 +3567,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
           activeThreadId={activeThread.id}
           activeThreadTitle={activeThread.title}
           activeProjectName={activeProject?.name}
+          activeProjectCwd={activeProject?.cwd ?? null}
           isGitRepo={isGitRepo}
           openInCwd={gitCwd}
           activeProjectScripts={activeProject?.scripts}
@@ -3988,7 +3995,34 @@ export default function ChatView({ threadId }: ChatViewProps) {
                         className="flex shrink-0 items-center gap-2"
                       >
                         {activeContextWindow ? (
-                          <ContextWindowMeter usage={activeContextWindow} />
+                          <ContextWindowMeter
+                            usage={activeContextWindow}
+                            provider={selectedProvider}
+                            isWorking={isWorking}
+                            onCompact={
+                              selectedProvider === "claudeAgent" && activeThreadId
+                                ? () => {
+                                    const api = readNativeApi();
+                                    if (!api || !activeThreadId) return;
+                                    api.orchestration.dispatchCommand({
+                                      type: "thread.turn.start",
+                                      commandId: newCommandId(),
+                                      threadId: activeThreadId,
+                                      message: {
+                                        messageId: newMessageId(),
+                                        role: "user",
+                                        text: "/compact",
+                                        attachments: [],
+                                      },
+                                      modelSelection: selectedModelSelection,
+                                      runtimeMode,
+                                      interactionMode,
+                                      createdAt: new Date().toISOString(),
+                                    });
+                                  }
+                                : undefined
+                            }
+                          />
                         ) : null}
                         {isPreparingWorktree ? (
                           <span className="text-muted-foreground/70 text-xs">

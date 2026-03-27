@@ -5,6 +5,8 @@ import { runProcess } from "./processRunner";
 
 import {
   ProjectEntry,
+  type ProjectListEntriesInput,
+  type ProjectListEntriesResult,
   ProjectSearchEntriesInput,
   ProjectSearchEntriesResult,
 } from "@t3tools/contracts";
@@ -537,6 +539,30 @@ async function getWorkspaceIndex(cwd: string): Promise<WorkspaceIndex> {
 export function clearWorkspaceIndexCache(cwd: string): void {
   workspaceIndexCache.delete(cwd);
   inFlightWorkspaceIndexBuilds.delete(cwd);
+}
+
+export async function listWorkspaceEntries(
+  input: ProjectListEntriesInput,
+): Promise<ProjectListEntriesResult> {
+  const index = await getWorkspaceIndex(input.cwd);
+  const parentPath = input.parentPath;
+
+  const directChildren = index.entries.filter((entry) => {
+    if (parentPath === undefined) {
+      return entry.parentPath === undefined;
+    }
+    return entry.parentPath === parentPath;
+  });
+
+  const sorted = directChildren.toSorted((a, b) => {
+    if (a.kind !== b.kind) return a.kind === "directory" ? -1 : 1;
+    return a.path.localeCompare(b.path);
+  });
+
+  return {
+    entries: sorted,
+    truncated: index.truncated,
+  };
 }
 
 export async function searchWorkspaceEntries(

@@ -10,6 +10,7 @@ import {
   SquarePenIcon,
   TerminalIcon,
   TriangleAlertIcon,
+  XIcon,
 } from "lucide-react";
 import { autoAnimate } from "@formkit/auto-animate";
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
@@ -85,6 +86,7 @@ import {
   SidebarMenuSubItem,
   SidebarSeparator,
   SidebarTrigger,
+  useSidebar,
 } from "./ui/sidebar";
 import { useThreadSelectionStore } from "../threadSelectionStore";
 import { formatWorktreePathForDisplay, getOrphanedWorktreePathForThread } from "../worktreeCleanup";
@@ -362,6 +364,7 @@ function SortableProjectItem({
 }
 
 export default function Sidebar() {
+  const { setOpenMobile, isMobile } = useSidebar();
   const projects = useStore((store) => store.projects);
   const threads = useStore((store) => store.threads);
   const markThreadUnread = useStore((store) => store.markThreadUnread);
@@ -1602,7 +1605,7 @@ export default function Sidebar() {
   }, []);
 
   const wordmark = (
-    <div className="flex items-center gap-2">
+    <div className="flex w-full items-center gap-2">
       <SidebarTrigger className="shrink-0 md:hidden" />
       <Tooltip>
         <TooltipTrigger
@@ -1622,6 +1625,17 @@ export default function Sidebar() {
           Version {APP_VERSION}
         </TooltipPopup>
       </Tooltip>
+      {isMobile && (
+        <Button
+          variant="ghost"
+          size="icon"
+          className="ml-auto size-7 shrink-0"
+          onClick={() => setOpenMobile(false)}
+        >
+          <XIcon className="size-4" />
+          <span className="sr-only">Close sidebar</span>
+        </Button>
+      )}
     </div>
   );
 

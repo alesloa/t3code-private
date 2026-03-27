@@ -50,7 +50,7 @@ import { GitManager } from "./git/Services/GitManager.ts";
 import { TerminalManager } from "./terminal/Services/Manager.ts";
 import { Keybindings } from "./keybindings";
 import { ServerSettingsService } from "./serverSettings";
-import { searchWorkspaceEntries } from "./workspaceEntries";
+import { listWorkspaceEntries, searchWorkspaceEntries } from "./workspaceEntries";
 import { OrchestrationEngineService } from "./orchestration/Services/OrchestrationEngine";
 import { ProjectionSnapshotQuery } from "./orchestration/Services/ProjectionSnapshotQuery";
 import { OrchestrationReactor } from "./orchestration/Services/OrchestrationReactor";
@@ -158,7 +158,35 @@ function toPosixRelativePath(input: string): string {
   return input.replaceAll("\\", "/");
 }
 
-function resolveWorkspaceWritePath(params: {
+function resolveImageMimeType(filePath: string): string {
+  const ext = filePath.split(".").pop()?.toLowerCase() ?? "";
+  switch (ext) {
+    case "png":
+      return "image/png";
+    case "jpg":
+    case "jpeg":
+      return "image/jpeg";
+    case "gif":
+      return "image/gif";
+    case "webp":
+      return "image/webp";
+    case "svg":
+      return "image/svg+xml";
+    case "bmp":
+      return "image/bmp";
+    case "ico":
+      return "image/x-icon";
+    case "avif":
+      return "image/avif";
+    case "tiff":
+    case "tif":
+      return "image/tiff";
+    default:
+      return "application/octet-stream";
+  }
+}
+
+function resolveWorkspacePath(params: {
   workspaceRoot: string;
   relativePath: string;
   path: Path.Path;
@@ -777,9 +805,58 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
         });
       }
 
+      case WS_METHODS.projectsListEntries: {
+        const body = stripRequestTag(request.body);
+        return yield* Effect.tryPromise({
+          try: () => listWorkspaceEntries(body),
+          catch: (cause) =>
+            new RouteRequestError({
+              message: `Failed to list workspace entries: ${String(cause)}`,
+            }),
+        });
+      }
+
+      case WS_METHODS.projectsReadFile: {
+        const body = stripRequestTag(request.body);
+        const target = yield* resolveWorkspacePath({
+          workspaceRoot: body.cwd,
+          relativePath: body.relativePath,
+          path,
+        });
+        const contents = yield* fileSystem.readFileString(target.absolutePath).pipe(
+          Effect.mapError(
+            (cause) =>
+              new RouteRequestError({
+                message: `Failed to read workspace file: ${String(cause)}`,
+              }),
+          ),
+        );
+        return { relativePath: target.relativePath, contents };
+      }
+
+      case WS_METHODS.projectsReadFileBase64: {
+        const body = stripRequestTag(request.body);
+        const target = yield* resolveWorkspacePath({
+          workspaceRoot: body.cwd,
+          relativePath: body.relativePath,
+          path,
+        });
+        const bytes = yield* fileSystem.readFile(target.absolutePath).pipe(
+          Effect.mapError(
+            (cause) =>
+              new RouteRequestError({
+                message: `Failed to read workspace file: ${String(cause)}`,
+              }),
+          ),
+        );
+        const base64 = Buffer.from(bytes).toString("base64");
+        const mimeType = resolveImageMimeType(target.relativePath);
+        return { relativePath: target.relativePath, base64, mimeType };
+      }
+
       case WS_METHODS.projectsWriteFile: {
         const body = stripRequestTag(request.body);
-        const target = yield* resolveWorkspaceWritePath({
+        const target = yield* resolveWorkspacePath({
           workspaceRoot: body.cwd,
           relativePath: body.relativePath,
           path,

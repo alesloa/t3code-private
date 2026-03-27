@@ -26,6 +26,37 @@ export const ProjectSearchEntriesResult = Schema.Struct({
 });
 export type ProjectSearchEntriesResult = typeof ProjectSearchEntriesResult.Type;
 
+export const ProjectListEntriesInput = Schema.Struct({
+  cwd: TrimmedNonEmptyString,
+  parentPath: Schema.optional(TrimmedNonEmptyString),
+});
+export type ProjectListEntriesInput = typeof ProjectListEntriesInput.Type;
+
+export const ProjectListEntriesResult = Schema.Struct({
+  entries: Schema.Array(ProjectEntry),
+  truncated: Schema.Boolean,
+});
+export type ProjectListEntriesResult = typeof ProjectListEntriesResult.Type;
+
+export const ProjectReadFileInput = Schema.Struct({
+  cwd: TrimmedNonEmptyString,
+  relativePath: TrimmedNonEmptyString.check(Schema.isMaxLength(PROJECT_WRITE_FILE_PATH_MAX_LENGTH)),
+});
+export type ProjectReadFileInput = typeof ProjectReadFileInput.Type;
+
+export const ProjectReadFileResult = Schema.Struct({
+  relativePath: TrimmedNonEmptyString,
+  contents: Schema.String,
+});
+export type ProjectReadFileResult = typeof ProjectReadFileResult.Type;
+
+export const ProjectReadFileBase64Result = Schema.Struct({
+  relativePath: TrimmedNonEmptyString,
+  base64: Schema.String,
+  mimeType: Schema.String,
+});
+export type ProjectReadFileBase64Result = typeof ProjectReadFileBase64Result.Type;
+
 export const ProjectWriteFileInput = Schema.Struct({
   cwd: TrimmedNonEmptyString,
   relativePath: TrimmedNonEmptyString.check(Schema.isMaxLength(PROJECT_WRITE_FILE_PATH_MAX_LENGTH)),

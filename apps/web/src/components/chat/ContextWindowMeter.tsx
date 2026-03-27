@@ -1,6 +1,7 @@
 import { cn } from "~/lib/utils";
 import { type ContextWindowSnapshot, formatContextWindowTokens } from "~/lib/contextWindow";
 import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
+import type { ProviderKind } from "@t3tools/contracts";
 
 function formatPercentage(value: number | null): string | null {
   if (value === null || !Number.isFinite(value)) {
@@ -12,7 +13,12 @@ function formatPercentage(value: number | null): string | null {
   return `${Math.round(value)}%`;
 }
 
-export function ContextWindowMeter(props: { usage: ContextWindowSnapshot }) {
+export function ContextWindowMeter(props: {
+  usage: ContextWindowSnapshot;
+  provider?: ProviderKind | undefined;
+  isWorking?: boolean | undefined;
+  onCompact?: (() => void) | undefined;
+}) {
   const { usage } = props;
   const usedPercentage = formatPercentage(usage.usedPercentage);
   const normalizedPercentage = Math.max(0, Math.min(100, usage.usedPercentage ?? 0));
@@ -106,6 +112,19 @@ export function ContextWindowMeter(props: { usage: ContextWindowSnapshot }) {
             <div className="text-xs text-muted-foreground">
               Automatically compacts its context when needed.
             </div>
+          ) : null}
+          {props.provider === "claudeAgent" && props.onCompact ? (
+            <button
+              type="button"
+              disabled={props.isWorking}
+              onClick={(e) => {
+                e.stopPropagation();
+                props.onCompact?.();
+              }}
+              className="mt-1 rounded px-1.5 py-0.5 text-xs font-medium text-foreground hover:bg-muted disabled:pointer-events-none disabled:opacity-50"
+            >
+              Compact now
+            </button>
           ) : null}
         </div>
       </PopoverPopup>
