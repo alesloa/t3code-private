@@ -2,6 +2,7 @@ import tailwindcss from "@tailwindcss/vite";
 import react, { reactCompilerPreset } from "@vitejs/plugin-react";
 import babel from "@rolldown/plugin-babel";
 import { tanstackRouter } from "@tanstack/router-plugin/vite";
+import { VitePWA } from "vite-plugin-pwa";
 import { defineConfig } from "vite";
 import pkg from "./package.json" with { type: "json" };
 
@@ -28,6 +29,28 @@ export default defineConfig({
       presets: [reactCompilerPreset()],
     }),
     tailwindcss(),
+    VitePWA({
+      registerType: "autoUpdate",
+      useCredentials: true,
+      manifest: {
+        name: "T3 Code",
+        short_name: "T3 Code",
+        description: "A minimal web GUI for coding agents",
+        theme_color: "#0f0f0f",
+        background_color: "#0f0f0f",
+        display: "standalone",
+        icons: [
+          { src: "/pwa-192x192.png", sizes: "192x192", type: "image/png" },
+          { src: "/pwa-512x512.png", sizes: "512x512", type: "image/png" },
+          { src: "/pwa-512x512.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
+        ],
+      },
+      workbox: {
+        navigateFallback: "index.html",
+        globIgnores: ["**/mockServiceWorker.js"],
+        maximumFileSizeToCacheInBytes: 3 * 1024 * 1024, // 3 MB — main bundle includes CodeMirror + diffs
+      },
+    }),
   ],
   optimizeDeps: {
     include: ["@pierre/diffs", "@pierre/diffs/react", "@pierre/diffs/worker/worker.js"],

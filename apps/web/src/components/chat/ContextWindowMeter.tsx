@@ -29,9 +29,6 @@ export function ContextWindowMeter(props: {
   return (
     <Popover>
       <PopoverTrigger
-        openOnHover
-        delay={150}
-        closeDelay={0}
         render={
           <button
             type="button"
@@ -83,7 +80,7 @@ export function ContextWindowMeter(props: {
           </button>
         }
       />
-      <PopoverPopup tooltipStyle side="top" align="end" className="w-max max-w-none px-3 py-2">
+      <PopoverPopup side="top" align="end" className="w-max max-w-none px-3 py-2.5">
         <div className="space-y-1.5 leading-tight">
           <div className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
             Context window
@@ -121,7 +118,7 @@ export function ContextWindowMeter(props: {
                 e.stopPropagation();
                 props.onCompact?.();
               }}
-              className="mt-1 rounded px-1.5 py-0.5 text-xs font-medium text-foreground hover:bg-muted disabled:pointer-events-none disabled:opacity-50"
+              className="mt-1.5 w-full rounded-md border border-border bg-muted/50 px-2.5 py-1 text-xs font-medium text-foreground transition-colors hover:bg-muted disabled:pointer-events-none disabled:opacity-40"
             >
               Compact now
             </button>
