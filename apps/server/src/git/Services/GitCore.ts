@@ -16,10 +16,31 @@ import type {
   GitInitInput,
   GitListBranchesInput,
   GitListBranchesResult,
+  GitListWorktreesInput,
+  GitListWorktreesResult,
+  GitLogInput,
+  GitLogResult,
   GitPullResult,
   GitRemoveWorktreeInput,
+  GitDeleteBranchInput,
+  GitStageFilesInput,
+  GitStashApplyInput,
+  GitStashCreateInput,
+  GitStashDropInput,
+  GitStashListInput,
+  GitStashListResult,
+  GitStashPopInput,
+  GitStashShowInput,
+  GitStashShowResult,
+  GitStashShowFileInput,
+  GitStashShowFileResult,
+  GitStashShowFilesResult,
+  GitStashRestoreFileInput,
+  GitStatusDetailedInput,
+  GitStatusDetailedResult,
   GitStatusInput,
   GitStatusResult,
+  GitUnstageFilesInput,
 } from "@t3tools/contracts";
 
 import type { GitCommandError } from "../Errors.ts";
@@ -264,9 +285,98 @@ export interface GitCoreShape {
   readonly initRepo: (input: GitInitInput) => Effect.Effect<void, GitCommandError>;
 
   /**
+   * Read detailed status with staged/unstaged/untracked file separation.
+   */
+  readonly statusDetailed: (
+    input: GitStatusDetailedInput,
+  ) => Effect.Effect<GitStatusDetailedResult, GitCommandError>;
+
+  /**
+   * Stage files by explicit paths.
+   */
+  readonly stageFiles: (input: GitStageFilesInput) => Effect.Effect<void, GitCommandError>;
+
+  /**
+   * Unstage files by explicit paths.
+   */
+  readonly unstageFiles: (input: GitUnstageFilesInput) => Effect.Effect<void, GitCommandError>;
+
+  /**
+   * Delete a local branch.
+   */
+  readonly deleteBranch: (input: GitDeleteBranchInput) => Effect.Effect<void, GitCommandError>;
+
+  /**
    * List local branch names (short format).
    */
   readonly listLocalBranchNames: (cwd: string) => Effect.Effect<string[], GitCommandError>;
+
+  /**
+   * List stash entries.
+   */
+  readonly stashList: (
+    input: GitStashListInput,
+  ) => Effect.Effect<GitStashListResult, GitCommandError>;
+
+  /**
+   * Create a new stash entry.
+   */
+  readonly stashCreate: (input: GitStashCreateInput) => Effect.Effect<void, GitCommandError>;
+
+  /**
+   * Apply a stash entry without removing it.
+   */
+  readonly stashApply: (input: GitStashApplyInput) => Effect.Effect<void, GitCommandError>;
+
+  /**
+   * Apply a stash entry and remove it from the stash list.
+   */
+  readonly stashPop: (input: GitStashPopInput) => Effect.Effect<void, GitCommandError>;
+
+  /**
+   * Drop a stash entry.
+   */
+  readonly stashDrop: (input: GitStashDropInput) => Effect.Effect<void, GitCommandError>;
+
+  /**
+   * Show the diff of a stash entry.
+   */
+  readonly stashShow: (
+    input: GitStashShowInput,
+  ) => Effect.Effect<GitStashShowResult, GitCommandError>;
+
+  /**
+   * List files changed in a stash entry.
+   */
+  readonly stashShowFiles: (
+    input: GitStashShowInput,
+  ) => Effect.Effect<GitStashShowFilesResult, GitCommandError>;
+
+  /**
+   * Show the diff of a single file in a stash entry.
+   */
+  readonly stashShowFile: (
+    input: GitStashShowFileInput,
+  ) => Effect.Effect<GitStashShowFileResult, GitCommandError>;
+
+  /**
+   * Restore a single file from a stash entry to the working tree.
+   */
+  readonly stashRestoreFile: (
+    input: GitStashRestoreFileInput,
+  ) => Effect.Effect<void, GitCommandError>;
+
+  /**
+   * List all worktrees for a repository.
+   */
+  readonly listWorktrees: (
+    input: GitListWorktreesInput,
+  ) => Effect.Effect<GitListWorktreesResult, GitCommandError>;
+
+  /**
+   * Read commit log entries for graph visualization.
+   */
+  readonly log: (input: GitLogInput) => Effect.Effect<GitLogResult, GitCommandError>;
 }
 
 /**

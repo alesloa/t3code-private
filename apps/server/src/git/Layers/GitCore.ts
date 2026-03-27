@@ -111,6 +111,27 @@ function parsePorcelainPath(line: string): string | null {
   return filePath.length > 0 ? filePath : null;
 }
 
+function mapPorcelainStatus(c: string): string {
+  switch (c) {
+    case "M":
+      return "modified";
+    case "A":
+      return "added";
+    case "D":
+      return "deleted";
+    case "R":
+      return "renamed";
+    case "C":
+      return "copied";
+    case "T":
+      return "typechange";
+    case "U":
+      return "unmerged";
+    default:
+      return "modified";
+  }
+}
+
 function parseBranchLine(line: string): { name: string; current: boolean } | null {
   const trimmed = line.trim();
   if (trimmed.length === 0) return null;
@@ -1137,6 +1158,192 @@ export const makeGitCore = (options?: { executeOverride?: GitCoreShape["execute"
         })),
       );
 
+    const statusDetailed: GitCoreShape["statusDetailed"] = (input) =>
+      Effect.gen(function* () {
+        yield* refreshStatusUpstreamIfStale(input.cwd).pipe(Effect.ignoreCause({ log: true }));
+
+        const [statusStdout, unstagedNumstatStdout, stagedNumstatStdout] = yield* Effect.all(
+          [
+            runGitStdout("GitCore.statusDetailed.status", input.cwd, [
+              "status",
+              "--porcelain=2",
+              "--branch",
+            ]),
+            runGitStdout("GitCore.statusDetailed.unstagedNumstat", input.cwd, [
+              "diff",
+              "--numstat",
+            ]),
+            runGitStdout("GitCore.statusDetailed.stagedNumstat", input.cwd, [
+              "diff",
+              "--cached",
+              "--numstat",
+            ]),
+          ],
+          { concurrency: "unbounded" },
+        );
+
+        let branch: string | null = null;
+        let upstreamRef: string | null = null;
+        let aheadCount = 0;
+        let behindCount = 0;
+
+        type DetailedFile = {
+          path: string;
+          status: string;
+          oldPath?: string;
+        };
+
+        const stagedFiles: DetailedFile[] = [];
+        const unstagedFiles: DetailedFile[] = [];
+        const untrackedFiles: { path: string }[] = [];
+
+        for (const line of statusStdout.split(/\r?\n/g)) {
+          if (line.startsWith("# branch.head ")) {
+            const value = line.slice("# branch.head ".length).trim();
+            branch = value.startsWith("(") ? null : value;
+            continue;
+          }
+          if (line.startsWith("# branch.upstream ")) {
+            const value = line.slice("# branch.upstream ".length).trim();
+            upstreamRef = value.length > 0 ? value : null;
+            continue;
+          }
+          if (line.startsWith("# branch.ab ")) {
+            const value = line.slice("# branch.ab ".length).trim();
+            const parsed = parseBranchAb(value);
+            aheadCount = parsed.ahead;
+            behindCount = parsed.behind;
+            continue;
+          }
+          if (line.startsWith("? ")) {
+            const filePath = line.slice(2).trim();
+            if (filePath.length > 0) untrackedFiles.push({ path: filePath });
+            continue;
+          }
+          if (line.startsWith("1 ") || line.startsWith("2 ")) {
+            // Porcelain v2 ordinary (1) or rename/copy (2) entry
+            // Format: 1 XY sub mH mI mW hH hI path
+            // Format: 2 XY sub mH mI mW hH hI X{score} path\torigPath
+            const parts = line.split(/\s+/);
+            const xy = parts[1] ?? "..";
+            const x = xy[0] ?? "."; // staged status
+            const y = xy[1] ?? "."; // unstaged status
+
+            let filePath: string;
+            let oldPath: string | undefined;
+            if (line.startsWith("2 ")) {
+              // Rename/copy: path\torigPath after the fixed fields
+              const tabIdx = line.indexOf("\t");
+              if (tabIdx >= 0) {
+                const pathPart = line.slice(tabIdx + 1);
+                const tabParts = pathPart.split("\t");
+                filePath = tabParts[0]?.trim() ?? "";
+                oldPath = tabParts[1]?.trim();
+              } else {
+                filePath = parts.at(-1) ?? "";
+              }
+            } else {
+              filePath = parts.at(-1) ?? "";
+            }
+
+            if (filePath.length === 0) continue;
+
+            if (x !== "." && x !== "?") {
+              const entry: DetailedFile = { path: filePath, status: mapPorcelainStatus(x) };
+              if (oldPath) entry.oldPath = oldPath;
+              stagedFiles.push(entry);
+            }
+            if (y !== "." && y !== "?") {
+              unstagedFiles.push({ path: filePath, status: mapPorcelainStatus(y) });
+            }
+            continue;
+          }
+          if (line.startsWith("u ")) {
+            // Unmerged entry
+            const filePath = parsePorcelainPath(line);
+            if (filePath) {
+              stagedFiles.push({ path: filePath, status: "unmerged" });
+            }
+          }
+        }
+
+        if (!upstreamRef && branch) {
+          aheadCount = yield* computeAheadCountAgainstBase(input.cwd, branch).pipe(
+            Effect.catch(() => Effect.succeed(0)),
+          );
+          behindCount = 0;
+        }
+
+        // Build numstat maps for staged and unstaged separately
+        const stagedNumstat = parseNumstatEntries(stagedNumstatStdout);
+        const unstagedNumstat = parseNumstatEntries(unstagedNumstatStdout);
+        const stagedStatMap = new Map(stagedNumstat.map((e) => [e.path, e]));
+        const unstagedStatMap = new Map(unstagedNumstat.map((e) => [e.path, e]));
+
+        const staged = stagedFiles
+          .map((f) => {
+            const stats = stagedStatMap.get(f.path);
+            const entry: {
+              path: string;
+              status: any;
+              insertions: number;
+              deletions: number;
+              oldPath?: string;
+            } = {
+              path: f.path,
+              status: f.status as any,
+              insertions: stats?.insertions ?? 0,
+              deletions: stats?.deletions ?? 0,
+            };
+            if (f.oldPath) entry.oldPath = f.oldPath;
+            return entry;
+          })
+          .toSorted((a, b) => a.path.localeCompare(b.path));
+
+        const unstaged = unstagedFiles
+          .map((f) => {
+            const stats = unstagedStatMap.get(f.path);
+            return {
+              path: f.path,
+              status: f.status as any,
+              insertions: stats?.insertions ?? 0,
+              deletions: stats?.deletions ?? 0,
+            };
+          })
+          .toSorted((a, b) => a.path.localeCompare(b.path));
+
+        return {
+          branch,
+          staged,
+          unstaged,
+          untracked: untrackedFiles.toSorted((a, b) => a.path.localeCompare(b.path)),
+          hasUpstream: upstreamRef !== null,
+          aheadCount,
+          behindCount,
+          pr: null,
+        };
+      });
+
+    const stageFiles: GitCoreShape["stageFiles"] = (input) =>
+      runGit("GitCore.stageFiles", input.cwd, ["add", "--", ...input.filePaths]).pipe(
+        Effect.asVoid,
+      );
+
+    const unstageFiles: GitCoreShape["unstageFiles"] = (input) =>
+      runGit("GitCore.unstageFiles", input.cwd, [
+        "restore",
+        "--staged",
+        "--",
+        ...input.filePaths,
+      ]).pipe(Effect.asVoid);
+
+    const deleteBranch: GitCoreShape["deleteBranch"] = (input) =>
+      runGit("GitCore.deleteBranch", input.cwd, [
+        "branch",
+        input.force ? "-D" : "-d",
+        input.branch,
+      ]).pipe(Effect.asVoid);
+
     const prepareCommitContext: GitCoreShape["prepareCommitContext"] = (cwd, filePaths) =>
       Effect.gen(function* () {
         if (filePaths && filePaths.length > 0) {
@@ -1793,6 +2000,209 @@ export const makeGitCore = (options?: { executeOverride?: GitCoreShape["execute"
         ),
       );
 
+    const listWorktrees: GitCoreShape["listWorktrees"] = (input) =>
+      runGitStdout("GitCore.listWorktrees", input.cwd, ["worktree", "list", "--porcelain"]).pipe(
+        Effect.map((stdout) => {
+          const worktrees: Array<{
+            path: string;
+            branch: string | null;
+            isMainWorktree: boolean;
+            isBare: boolean;
+          }> = [];
+          let currentPath: string | null = null;
+          let currentBranch: string | null = null;
+          let isBare = false;
+          let entryIndex = 0;
+
+          for (const line of stdout.split("\n")) {
+            if (line.startsWith("worktree ")) {
+              currentPath = line.slice("worktree ".length).trim();
+              currentBranch = null;
+              isBare = false;
+            } else if (line.startsWith("branch refs/heads/")) {
+              currentBranch = line.slice("branch refs/heads/".length).trim();
+            } else if (line === "bare") {
+              isBare = true;
+            } else if (line.trim() === "" && currentPath) {
+              worktrees.push({
+                path: currentPath,
+                branch: currentBranch,
+                isMainWorktree: entryIndex === 0,
+                isBare,
+              });
+              currentPath = null;
+              currentBranch = null;
+              isBare = false;
+              entryIndex++;
+            }
+          }
+
+          // Handle the last entry if stdout doesn't end with a blank line
+          if (currentPath) {
+            worktrees.push({
+              path: currentPath,
+              branch: currentBranch,
+              isMainWorktree: entryIndex === 0,
+              isBare,
+            });
+          }
+
+          return { worktrees };
+        }),
+      );
+
+    const stashList: GitCoreShape["stashList"] = (input) =>
+      runGitStdout("GitCore.stashList", input.cwd, [
+        "stash",
+        "list",
+        "--format=%gd|||%gs|||%ci",
+      ]).pipe(
+        Effect.map((stdout) => {
+          const entries = stdout
+            .split("\n")
+            .filter((line) => line.trim().length > 0)
+            .map((line) => {
+              const parts = line.split("|||");
+              const refPart = (parts[0] ?? "").trim();
+              const messagePart = (parts[1] ?? "").trim();
+              const datePart = (parts[2] ?? "").trim();
+
+              // Extract index from stash@{N}
+              const indexMatch = refPart.match(/^stash@\{(\d+)\}$/);
+              const index = indexMatch ? Number(indexMatch[1]) : 0;
+
+              // Extract branch from message like "WIP on branch-name: ..."
+              // or "On branch-name: message"
+              const branchMatch = messagePart.match(/^(?:WIP on|On)\s+([^:]+)/);
+              const branch = branchMatch ? branchMatch[1]!.trim() : null;
+
+              return { index, message: messagePart, branch, date: datePart };
+            });
+          return { entries };
+        }),
+      );
+
+    const stashCreate: GitCoreShape["stashCreate"] = (input) => {
+      const args = ["stash", "push"];
+      if (input.message) args.push("-m", input.message);
+      if (input.includeUntracked) args.push("--include-untracked");
+      if (input.filePaths && input.filePaths.length > 0) {
+        args.push("--", ...input.filePaths);
+      }
+      return runGit("GitCore.stashCreate", input.cwd, args);
+    };
+
+    const stashApply: GitCoreShape["stashApply"] = (input) =>
+      runGit("GitCore.stashApply", input.cwd, ["stash", "apply", `stash@{${input.index}}`]);
+
+    const stashPop: GitCoreShape["stashPop"] = (input) =>
+      runGit("GitCore.stashPop", input.cwd, ["stash", "pop", `stash@{${input.index}}`]);
+
+    const stashDrop: GitCoreShape["stashDrop"] = (input) =>
+      runGit("GitCore.stashDrop", input.cwd, ["stash", "drop", `stash@{${input.index}}`]);
+
+    const stashShow: GitCoreShape["stashShow"] = (input) =>
+      runGitStdout("GitCore.stashShow", input.cwd, [
+        "stash",
+        "show",
+        "-p",
+        `stash@{${input.index}}`,
+      ]).pipe(Effect.map((stdout) => ({ diff: stdout })));
+
+    const stashShowFiles: GitCoreShape["stashShowFiles"] = (input) =>
+      runGitStdout("GitCore.stashShowFiles", input.cwd, [
+        "stash",
+        "show",
+        "--name-status",
+        `stash@{${input.index}}`,
+      ]).pipe(
+        Effect.map((stdout) => {
+          type FileStatus =
+            | "modified"
+            | "added"
+            | "deleted"
+            | "renamed"
+            | "copied"
+            | "typechange"
+            | "unmerged";
+          const statusMap: Record<string, FileStatus> = {
+            M: "modified",
+            A: "added",
+            D: "deleted",
+            R: "renamed",
+            C: "copied",
+            T: "typechange",
+          };
+          const files = stdout
+            .trim()
+            .split("\n")
+            .filter(Boolean)
+            .map((line) => {
+              const [statusChar, ...pathParts] = line.split("\t");
+              const path = pathParts.join("\t");
+              const status: FileStatus = statusMap[statusChar?.charAt(0) ?? ""] ?? "modified";
+              return { path, status };
+            });
+          return { files };
+        }),
+      );
+
+    const stashShowFile: GitCoreShape["stashShowFile"] = (input) =>
+      runGitStdout("GitCore.stashShowFile", input.cwd, [
+        "stash",
+        "show",
+        "-p",
+        `stash@{${input.index}}`,
+        "--",
+        input.filePath,
+      ]).pipe(Effect.map((stdout) => ({ diff: stdout })));
+
+    const stashRestoreFile: GitCoreShape["stashRestoreFile"] = (input) =>
+      runGit("GitCore.stashRestoreFile", input.cwd, [
+        "checkout",
+        `stash@{${input.index}}`,
+        "--",
+        input.filePath,
+      ]).pipe(Effect.asVoid);
+
+    const log: GitCoreShape["log"] = (input) => {
+      const maxCount = input.maxCount ?? 50;
+      const skip = input.skip ?? 0;
+      const args: string[] = [
+        "log",
+        `--format=%H%x00%h%x00%an%x00%ae%x00%aI%x00%s%x00%P%x00%D`,
+        `--max-count=${maxCount}`,
+        `--skip=${skip}`,
+      ];
+      if (input.branch) {
+        args.push(input.branch);
+      } else {
+        args.push("--all");
+      }
+      return runGitStdout("GitCore.log", input.cwd, args).pipe(
+        Effect.map((stdout) => {
+          const lines = stdout.split("\n").filter((l) => l.length > 0);
+          const entries = lines.map((line) => {
+            const parts = line.split("\0");
+            return {
+              sha: parts[0] ?? "",
+              shortSha: parts[1] ?? "",
+              authorName: parts[2] ?? "",
+              authorEmail: parts[3] ?? "",
+              authorDate: parts[4] ?? "",
+              subject: parts[5] ?? "",
+              parents: (parts[6] ?? "").split(" ").filter((s) => s.length > 0),
+              refs: (parts[7] ?? "")
+                .split(",")
+                .map((r) => r.trim())
+                .filter((r) => r.length > 0),
+            };
+          });
+          return { entries, hasMore: entries.length === maxCount };
+        }),
+      );
+    };
+
     return {
       execute,
       status,
@@ -1815,6 +2225,21 @@ export const makeGitCore = (options?: { executeOverride?: GitCoreShape["execute"
       checkoutBranch,
       initRepo,
       listLocalBranchNames,
+      statusDetailed,
+      stageFiles,
+      unstageFiles,
+      deleteBranch,
+      stashList,
+      stashCreate,
+      stashApply,
+      stashPop,
+      stashDrop,
+      stashShow,
+      stashShowFiles,
+      stashShowFile,
+      stashRestoreFile,
+      listWorktrees,
+      log,
     } satisfies GitCoreShape;
   });
 

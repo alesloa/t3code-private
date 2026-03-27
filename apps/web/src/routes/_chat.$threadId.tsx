@@ -17,6 +17,7 @@ import {
   stripDiffSearchParams,
 } from "../diffRouteSearch";
 import { useFileEditorStore } from "../fileEditorStore";
+import { useGitPanelStore } from "../gitPanelStore";
 import { useMediaQuery } from "../hooks/useMediaQuery";
 import { useStore } from "../store";
 import { Sheet, SheetPopup } from "../components/ui/sheet";
@@ -24,6 +25,7 @@ import { Sidebar, SidebarInset, SidebarProvider, SidebarRail } from "~/component
 
 const DiffPanel = lazy(() => import("../components/DiffPanel"));
 const FileEditorPanel = lazy(() => import("../components/FileEditorPanel"));
+const GitPanel = lazy(() => import("../components/GitPanel"));
 
 const RIGHT_PANEL_LAYOUT_MEDIA_QUERY = "(max-width: 1180px)";
 const RIGHT_PANEL_SIDEBAR_WIDTH_STORAGE_KEY = "chat_diff_sidebar_width";
@@ -75,6 +77,14 @@ const LazyFileEditorPanel = (props: { mode: "sheet" | "sidebar" }) => {
   return (
     <Suspense fallback={null}>
       <FileEditorPanel mode={props.mode} />
+    </Suspense>
+  );
+};
+
+const LazyGitPanel = (props: { mode: "sheet" | "sidebar"; threadId: ThreadId }) => {
+  return (
+    <Suspense fallback={null}>
+      <GitPanel mode={props.mode} threadId={props.threadId} />
     </Suspense>
   );
 };
@@ -186,10 +196,15 @@ function ChatThreadRouteView() {
   const editorOpen = useFileEditorStore((s) => s.stateByThreadId[threadId]?.open ?? false);
   const closeEditorPanel = useFileEditorStore((s) => s.closePanel);
 
+  // Git panel store state
+  const gitPanelOpen = useGitPanelStore((s) => s.stateByThreadId[threadId]?.open ?? false);
+  const closeGitPanel = useGitPanelStore((s) => s.closePanel);
+
   // TanStack Router keeps active route components mounted across param-only navigations
   // unless remountDeps are configured, so this stays warm across thread switches.
   const [hasOpenedDiff, setHasOpenedDiff] = useState(diffOpen);
   const [hasOpenedEditor, setHasOpenedEditor] = useState(editorOpen);
+  const [hasOpenedGitPanel, setHasOpenedGitPanel] = useState(gitPanelOpen);
 
   const closeDiff = useCallback(() => {
     void navigate({
@@ -200,8 +215,9 @@ function ChatThreadRouteView() {
   }, [navigate, threadId]);
 
   const openDiff = useCallback(() => {
-    // Mutual exclusion: close editor when opening diff
+    // Mutual exclusion: close editor and git panel when opening diff
     closeEditorPanel(threadId);
+    closeGitPanel(threadId);
     void navigate({
       to: "/$threadId",
       params: { threadId },
@@ -210,7 +226,7 @@ function ChatThreadRouteView() {
         return { ...rest, diff: "1" };
       },
     });
-  }, [navigate, threadId, closeEditorPanel]);
+  }, [navigate, threadId, closeEditorPanel, closeGitPanel]);
 
   // Close the right panel (whichever is open)
   const closeRightPanel = useCallback(() => {
@@ -220,7 +236,10 @@ function ChatThreadRouteView() {
     if (editorOpen) {
       closeEditorPanel(threadId);
     }
-  }, [diffOpen, editorOpen, closeDiff, closeEditorPanel, threadId]);
+    if (gitPanelOpen) {
+      closeGitPanel(threadId);
+    }
+  }, [diffOpen, editorOpen, gitPanelOpen, closeDiff, closeEditorPanel, closeGitPanel, threadId]);
 
   useEffect(() => {
     if (diffOpen) {
@@ -231,8 +250,37 @@ function ChatThreadRouteView() {
   useEffect(() => {
     if (editorOpen) {
       setHasOpenedEditor(true);
+      // Mutual exclusion: close git panel when editor opens
+      if (gitPanelOpen) closeGitPanel(threadId);
     }
-  }, [editorOpen]);
+  }, [editorOpen, gitPanelOpen, closeGitPanel, threadId]);
+
+  useEffect(() => {
+    if (gitPanelOpen) {
+      setHasOpenedGitPanel(true);
+      // Mutual exclusion: close other panels when git panel opens
+      if (diffOpen) closeDiff();
+      if (editorOpen) closeEditorPanel(threadId);
+    }
+  }, [gitPanelOpen, diffOpen, editorOpen, closeDiff, closeEditorPanel, threadId]);
+
+  // Keyboard shortcut: Cmd+Shift+G / Ctrl+Shift+G to toggle git panel
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "G" && e.shiftKey && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault();
+        const openPanel = useGitPanelStore.getState().openPanel;
+        const close = useGitPanelStore.getState().closePanel;
+        if (gitPanelOpen) {
+          close(threadId);
+        } else {
+          openPanel(threadId, "changes");
+        }
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [threadId, gitPanelOpen]);
 
   useEffect(() => {
     if (!threadsHydrated) {
@@ -251,17 +299,23 @@ function ChatThreadRouteView() {
 
   const shouldRenderDiffContent = diffOpen || hasOpenedDiff;
   const shouldRenderEditorContent = editorOpen || hasOpenedEditor;
+  const shouldRenderGitPanel = gitPanelOpen || hasOpenedGitPanel;
 
-  // Determine which panel is active (editor takes priority if both somehow open)
-  const rightPanelOpen = editorOpen || diffOpen;
+  // Determine which panel is active (git panel > editor > diff priority)
+  const rightPanelOpen = gitPanelOpen || editorOpen || diffOpen;
 
   // Build the right panel content
-  const rightPanelContent = editorOpen ? (
+  const panelMode = shouldUseSheet ? "sheet" : "sidebar";
+  const rightPanelContent = gitPanelOpen ? (
+    shouldRenderGitPanel ? (
+      <LazyGitPanel mode={panelMode} threadId={threadId} />
+    ) : null
+  ) : editorOpen ? (
     shouldRenderEditorContent ? (
-      <LazyFileEditorPanel mode={shouldUseSheet ? "sheet" : "sidebar"} />
+      <LazyFileEditorPanel mode={panelMode} />
     ) : null
   ) : shouldRenderDiffContent ? (
-    <LazyDiffPanel mode={shouldUseSheet ? "sheet" : "sidebar"} />
+    <LazyDiffPanel mode={panelMode} />
   ) : null;
 
   if (!shouldUseSheet) {

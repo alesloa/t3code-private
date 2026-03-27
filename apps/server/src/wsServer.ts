@@ -1027,6 +1027,82 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
         return yield* git.initRepo(body);
       }
 
+      case WS_METHODS.gitStatusDetailed: {
+        const body = stripRequestTag(request.body);
+        return yield* git.statusDetailed(body);
+      }
+
+      case WS_METHODS.gitStageFiles: {
+        const body = stripRequestTag(request.body);
+        return yield* git.stageFiles(body);
+      }
+
+      case WS_METHODS.gitUnstageFiles: {
+        const body = stripRequestTag(request.body);
+        return yield* git.unstageFiles(body);
+      }
+
+      case WS_METHODS.gitDeleteBranch: {
+        const body = stripRequestTag(request.body);
+        return yield* git.deleteBranch(body);
+      }
+
+      case WS_METHODS.gitStashList: {
+        const body = stripRequestTag(request.body);
+        return yield* git.stashList(body);
+      }
+      case WS_METHODS.gitStashCreate: {
+        const body = stripRequestTag(request.body);
+        return yield* git.stashCreate(body);
+      }
+      case WS_METHODS.gitStashApply: {
+        const body = stripRequestTag(request.body);
+        return yield* git.stashApply(body);
+      }
+      case WS_METHODS.gitStashPop: {
+        const body = stripRequestTag(request.body);
+        return yield* git.stashPop(body);
+      }
+      case WS_METHODS.gitStashDrop: {
+        const body = stripRequestTag(request.body);
+        return yield* git.stashDrop(body);
+      }
+      case WS_METHODS.gitStashShow: {
+        const body = stripRequestTag(request.body);
+        return yield* git.stashShow(body);
+      }
+
+      case WS_METHODS.gitListWorktrees: {
+        const body = stripRequestTag(request.body);
+        return yield* git.listWorktrees(body);
+      }
+      case WS_METHODS.gitListPullRequests: {
+        const body = stripRequestTag(request.body);
+        return yield* gitManager.listPullRequests(body);
+      }
+      case WS_METHODS.gitLog: {
+        const body = stripRequestTag(request.body);
+        return yield* git.log(body);
+      }
+
+      case WS_METHODS.gitGenerateCommitMessage: {
+        const body = stripRequestTag(request.body);
+        return yield* gitManager.generateCommitMessage(body);
+      }
+
+      case WS_METHODS.gitStashShowFiles: {
+        const body = stripRequestTag(request.body);
+        return yield* git.stashShowFiles(body);
+      }
+      case WS_METHODS.gitStashShowFile: {
+        const body = stripRequestTag(request.body);
+        return yield* git.stashShowFile(body);
+      }
+      case WS_METHODS.gitStashRestoreFile: {
+        const body = stripRequestTag(request.body);
+        return yield* git.stashRestoreFile(body);
+      }
+
       case WS_METHODS.terminalOpen: {
         const body = stripRequestTag(request.body);
         return yield* terminalManager.open(body);

@@ -1280,11 +1280,145 @@ export const makeGitManager = Effect.gen(function* () {
     },
   );
 
+  const listPullRequests: GitManagerShape["listPullRequests"] = Effect.fnUntraced(
+    function* (input) {
+      const state = input.state ?? "open";
+      const result = yield* gitHubCli
+        .execute({
+          cwd: input.cwd,
+          args: [
+            "pr",
+            "list",
+            "--state",
+            state,
+            "--json",
+            "number,title,url,state,baseRefName,headRefName,author,createdAt",
+            "--limit",
+            "50",
+          ],
+        })
+        .pipe(
+          Effect.map((r) => r.stdout.trim()),
+          Effect.catch(() => Effect.succeed("")),
+        );
+
+      if (result.length === 0) {
+        return { pullRequests: [] };
+      }
+
+      let rawItems: Array<{
+        number: number;
+        title: string;
+        url: string;
+        state: string;
+        baseRefName: string;
+        headRefName: string;
+        author: { login: string };
+        createdAt: string;
+      }>;
+      try {
+        rawItems = JSON.parse(result) as typeof rawItems;
+      } catch {
+        return { pullRequests: [] };
+      }
+
+      if (!Array.isArray(rawItems)) {
+        return { pullRequests: [] };
+      }
+
+      const pullRequests = rawItems.map((item) => {
+        const normalizedState =
+          item.state === "MERGED" ? "merged" : item.state === "CLOSED" ? "closed" : "open";
+        return {
+          number: item.number,
+          title: item.title ?? "",
+          url: item.url ?? "",
+          state: normalizedState as "open" | "closed" | "merged",
+          baseBranch: item.baseRefName ?? "",
+          headBranch: item.headRefName ?? "",
+          authorLogin: item.author?.login ?? "",
+          createdAt: item.createdAt ?? "",
+        };
+      });
+
+      return { pullRequests };
+    },
+  );
+
+  const generateCommitMessage: GitManagerShape["generateCommitMessage"] = Effect.fnUntraced(
+    function* (input) {
+      const modelSelection = yield* serverSettingsService.getSettings.pipe(
+        Effect.map((s) => s.textGenerationModelSelection),
+        Effect.mapError((cause) =>
+          gitManagerError("generateCommitMessage", "Failed to get server settings.", cause),
+        ),
+      );
+
+      const statusDetails = yield* gitCore
+        .statusDetails(input.cwd)
+        .pipe(
+          Effect.mapError((cause) =>
+            gitManagerError("generateCommitMessage", "Failed to get status.", cause),
+          ),
+        );
+
+      // Read staged context WITHOUT modifying the index (avoid prepareCommitContext's git add -A)
+      const summary = yield* gitCore
+        .execute({
+          operation: "generateCommitMessage.summary",
+          cwd: input.cwd,
+          args: ["diff", "--cached", "--name-status"],
+        })
+        .pipe(
+          Effect.mapError((cause) =>
+            gitManagerError("generateCommitMessage", "Failed to read staged summary.", cause),
+          ),
+        );
+
+      const patch = yield* gitCore
+        .execute({
+          operation: "generateCommitMessage.patch",
+          cwd: input.cwd,
+          args: ["diff", "--cached", "--patch", "--minimal"],
+        })
+        .pipe(
+          Effect.mapError((cause) =>
+            gitManagerError("generateCommitMessage", "Failed to read staged patch.", cause),
+          ),
+        );
+
+      if (!summary.stdout.trim()) {
+        return yield* Effect.fail(
+          gitManagerError("generateCommitMessage", "No staged changes to describe."),
+        );
+      }
+
+      const generated = yield* textGeneration
+        .generateCommitMessage({
+          cwd: input.cwd,
+          branch: statusDetails.branch,
+          stagedSummary: limitContext(summary.stdout, 8_000),
+          stagedPatch: limitContext(patch.stdout, 50_000),
+          modelSelection,
+        })
+        .pipe(
+          Effect.map((result) => sanitizeCommitMessage(result)),
+          Effect.mapError((cause) =>
+            gitManagerError("generateCommitMessage", "Text generation failed.", cause),
+          ),
+        );
+
+      return { subject: generated.subject, body: generated.body };
+    },
+  );
+
   return {
     status,
     resolvePullRequest,
     preparePullRequestThread,
     runStackedAction,
+    listPullRequests,
+    generateCommitMessage,
   } satisfies GitManagerShape;
 });
 

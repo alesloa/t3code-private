@@ -281,3 +281,232 @@ export const GitActionProgressEvent = Schema.Union([
   GitActionFailedEvent,
 ]);
 export type GitActionProgressEvent = typeof GitActionProgressEvent.Type;
+
+// ── Detailed Status (staged / unstaged separation) ────────────────────
+
+export const GitFileStatus = Schema.Literals([
+  "modified",
+  "added",
+  "deleted",
+  "renamed",
+  "copied",
+  "typechange",
+  "unmerged",
+]);
+export type GitFileStatus = typeof GitFileStatus.Type;
+
+export const GitStatusDetailedFile = Schema.Struct({
+  path: TrimmedNonEmptyStringSchema,
+  status: GitFileStatus,
+  insertions: NonNegativeInt,
+  deletions: NonNegativeInt,
+  oldPath: Schema.optional(TrimmedNonEmptyStringSchema),
+});
+export type GitStatusDetailedFile = typeof GitStatusDetailedFile.Type;
+
+export const GitStatusDetailedInput = Schema.Struct({
+  cwd: TrimmedNonEmptyStringSchema,
+});
+export type GitStatusDetailedInput = typeof GitStatusDetailedInput.Type;
+
+export const GitStatusDetailedResult = Schema.Struct({
+  branch: TrimmedNonEmptyStringSchema.pipe(Schema.NullOr),
+  staged: Schema.Array(GitStatusDetailedFile),
+  unstaged: Schema.Array(GitStatusDetailedFile),
+  untracked: Schema.Array(Schema.Struct({ path: TrimmedNonEmptyStringSchema })),
+  hasUpstream: Schema.Boolean,
+  aheadCount: NonNegativeInt,
+  behindCount: NonNegativeInt,
+  pr: Schema.NullOr(GitStatusPr),
+});
+export type GitStatusDetailedResult = typeof GitStatusDetailedResult.Type;
+
+// ── Stage / Unstage Files ─────────────────────────────────────────────
+
+export const GitStageFilesInput = Schema.Struct({
+  cwd: TrimmedNonEmptyStringSchema,
+  filePaths: Schema.Array(TrimmedNonEmptyStringSchema).check(Schema.isMinLength(1)),
+});
+export type GitStageFilesInput = typeof GitStageFilesInput.Type;
+
+export const GitUnstageFilesInput = Schema.Struct({
+  cwd: TrimmedNonEmptyStringSchema,
+  filePaths: Schema.Array(TrimmedNonEmptyStringSchema).check(Schema.isMinLength(1)),
+});
+export type GitUnstageFilesInput = typeof GitUnstageFilesInput.Type;
+
+// ── Delete Branch ─────────────────────────────────────────────────────
+
+export const GitDeleteBranchInput = Schema.Struct({
+  cwd: TrimmedNonEmptyStringSchema,
+  branch: TrimmedNonEmptyStringSchema,
+  force: Schema.optional(Schema.Boolean),
+});
+export type GitDeleteBranchInput = typeof GitDeleteBranchInput.Type;
+
+// ── Stash Operations ──────────────────────────────────────────────────
+
+export const GitStashEntry = Schema.Struct({
+  index: NonNegativeInt,
+  message: Schema.String,
+  branch: Schema.String.pipe(Schema.NullOr),
+  date: Schema.String,
+});
+export type GitStashEntry = typeof GitStashEntry.Type;
+
+export const GitStashListInput = Schema.Struct({ cwd: TrimmedNonEmptyStringSchema });
+export type GitStashListInput = typeof GitStashListInput.Type;
+export const GitStashListResult = Schema.Struct({ entries: Schema.Array(GitStashEntry) });
+export type GitStashListResult = typeof GitStashListResult.Type;
+
+export const GitStashCreateInput = Schema.Struct({
+  cwd: TrimmedNonEmptyStringSchema,
+  message: Schema.optional(TrimmedNonEmptyStringSchema),
+  includeUntracked: Schema.optional(Schema.Boolean),
+  filePaths: Schema.optional(
+    Schema.Array(TrimmedNonEmptyStringSchema).check(Schema.isMinLength(1)),
+  ),
+});
+export type GitStashCreateInput = typeof GitStashCreateInput.Type;
+
+export const GitStashApplyInput = Schema.Struct({
+  cwd: TrimmedNonEmptyStringSchema,
+  index: NonNegativeInt,
+});
+export type GitStashApplyInput = typeof GitStashApplyInput.Type;
+
+export const GitStashPopInput = Schema.Struct({
+  cwd: TrimmedNonEmptyStringSchema,
+  index: NonNegativeInt,
+});
+export type GitStashPopInput = typeof GitStashPopInput.Type;
+
+export const GitStashDropInput = Schema.Struct({
+  cwd: TrimmedNonEmptyStringSchema,
+  index: NonNegativeInt,
+});
+export type GitStashDropInput = typeof GitStashDropInput.Type;
+
+export const GitStashShowInput = Schema.Struct({
+  cwd: TrimmedNonEmptyStringSchema,
+  index: NonNegativeInt,
+});
+export type GitStashShowInput = typeof GitStashShowInput.Type;
+export const GitStashShowResult = Schema.Struct({ diff: Schema.String });
+export type GitStashShowResult = typeof GitStashShowResult.Type;
+
+// ── Worktree List ─────────────────────────────────────────────────────
+
+export const GitListWorktreesInput = Schema.Struct({ cwd: TrimmedNonEmptyStringSchema });
+export type GitListWorktreesInput = typeof GitListWorktreesInput.Type;
+
+export const GitWorktreeEntry = Schema.Struct({
+  path: TrimmedNonEmptyStringSchema,
+  branch: Schema.String.pipe(Schema.NullOr),
+  isMainWorktree: Schema.Boolean,
+  isBare: Schema.Boolean,
+});
+export type GitWorktreeEntry = typeof GitWorktreeEntry.Type;
+
+export const GitListWorktreesResult = Schema.Struct({
+  worktrees: Schema.Array(GitWorktreeEntry),
+});
+export type GitListWorktreesResult = typeof GitListWorktreesResult.Type;
+
+// ── Pull Request List ─────────────────────────────────────────────────
+
+export const GitListPullRequestsInput = Schema.Struct({
+  cwd: TrimmedNonEmptyStringSchema,
+  state: Schema.optional(Schema.Literals(["open", "closed", "all"])),
+});
+export type GitListPullRequestsInput = typeof GitListPullRequestsInput.Type;
+
+export const GitPullRequestEntry = Schema.Struct({
+  number: PositiveInt,
+  title: Schema.String,
+  url: Schema.String,
+  state: Schema.Literals(["open", "closed", "merged"]),
+  baseBranch: Schema.String,
+  headBranch: Schema.String,
+  authorLogin: Schema.String,
+  createdAt: Schema.String,
+});
+export type GitPullRequestEntry = typeof GitPullRequestEntry.Type;
+
+export const GitListPullRequestsResult = Schema.Struct({
+  pullRequests: Schema.Array(GitPullRequestEntry),
+});
+export type GitListPullRequestsResult = typeof GitListPullRequestsResult.Type;
+
+// ── Git Log (for commit graph) ────────────────────────────────────────
+
+export const GitLogInput = Schema.Struct({
+  cwd: TrimmedNonEmptyStringSchema,
+  maxCount: Schema.optional(NonNegativeInt),
+  skip: Schema.optional(NonNegativeInt),
+  branch: Schema.optional(Schema.String),
+});
+export type GitLogInput = typeof GitLogInput.Type;
+
+export const GitLogEntry = Schema.Struct({
+  sha: Schema.String,
+  shortSha: Schema.String,
+  authorName: Schema.String,
+  authorEmail: Schema.String,
+  authorDate: Schema.String,
+  subject: Schema.String,
+  parents: Schema.Array(Schema.String),
+  refs: Schema.Array(Schema.String),
+});
+export type GitLogEntry = typeof GitLogEntry.Type;
+
+export const GitLogResult = Schema.Struct({
+  entries: Schema.Array(GitLogEntry),
+  hasMore: Schema.Boolean,
+});
+export type GitLogResult = typeof GitLogResult.Type;
+
+// ── Generate Commit Message ──────────────────────────────────────────
+
+export const GitGenerateCommitMessageInput = Schema.Struct({
+  cwd: TrimmedNonEmptyStringSchema,
+  filePaths: Schema.optional(
+    Schema.Array(TrimmedNonEmptyStringSchema).check(Schema.isMinLength(1)),
+  ),
+});
+export type GitGenerateCommitMessageInput = typeof GitGenerateCommitMessageInput.Type;
+
+export const GitGenerateCommitMessageResult = Schema.Struct({
+  subject: TrimmedNonEmptyStringSchema,
+  body: Schema.String,
+});
+export type GitGenerateCommitMessageResult = typeof GitGenerateCommitMessageResult.Type;
+
+// ── Stash File-Level Operations ──────────────────────────────────────
+
+export const GitStashShowFilesResult = Schema.Struct({
+  files: Schema.Array(
+    Schema.Struct({
+      path: TrimmedNonEmptyStringSchema,
+      status: GitFileStatus,
+    }),
+  ),
+});
+export type GitStashShowFilesResult = typeof GitStashShowFilesResult.Type;
+
+export const GitStashShowFileInput = Schema.Struct({
+  cwd: TrimmedNonEmptyStringSchema,
+  index: NonNegativeInt,
+  filePath: TrimmedNonEmptyStringSchema,
+});
+export type GitStashShowFileInput = typeof GitStashShowFileInput.Type;
+
+export const GitStashShowFileResult = Schema.Struct({ diff: Schema.String });
+export type GitStashShowFileResult = typeof GitStashShowFileResult.Type;
+
+export const GitStashRestoreFileInput = Schema.Struct({
+  cwd: TrimmedNonEmptyStringSchema,
+  index: NonNegativeInt,
+  filePath: TrimmedNonEmptyStringSchema,
+});
+export type GitStashRestoreFileInput = typeof GitStashRestoreFileInput.Type;

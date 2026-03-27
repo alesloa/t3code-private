@@ -16,8 +16,33 @@ import type {
   GitResolvePullRequestResult,
   GitRunStackedActionInput,
   GitRunStackedActionResult,
+  GitDeleteBranchInput,
+  GitListPullRequestsInput,
+  GitListPullRequestsResult,
+  GitListWorktreesInput,
+  GitLogInput,
+  GitLogResult,
+  GitListWorktreesResult,
+  GitStageFilesInput,
+  GitStashApplyInput,
+  GitStashCreateInput,
+  GitStashDropInput,
+  GitStashListInput,
+  GitStashListResult,
+  GitStashPopInput,
+  GitStashShowInput,
+  GitStashShowResult,
+  GitStashShowFileInput,
+  GitStashShowFileResult,
+  GitStashShowFilesResult,
+  GitStashRestoreFileInput,
+  GitGenerateCommitMessageInput,
+  GitGenerateCommitMessageResult,
+  GitStatusDetailedInput,
+  GitStatusDetailedResult,
   GitStatusInput,
   GitStatusResult,
+  GitUnstageFilesInput,
 } from "./git";
 import type {
   ProjectListEntriesInput,
@@ -168,6 +193,30 @@ export interface NativeApi {
     preparePullRequestThread: (
       input: GitPreparePullRequestThreadInput,
     ) => Promise<GitPreparePullRequestThreadResult>;
+    // Detailed status + staging API
+    statusDetailed: (input: GitStatusDetailedInput) => Promise<GitStatusDetailedResult>;
+    stageFiles: (input: GitStageFilesInput) => Promise<void>;
+    unstageFiles: (input: GitUnstageFilesInput) => Promise<void>;
+    deleteBranch: (input: GitDeleteBranchInput) => Promise<void>;
+    // Stash API
+    stashList: (input: GitStashListInput) => Promise<GitStashListResult>;
+    stashCreate: (input: GitStashCreateInput) => Promise<void>;
+    stashApply: (input: GitStashApplyInput) => Promise<void>;
+    stashPop: (input: GitStashPopInput) => Promise<void>;
+    stashDrop: (input: GitStashDropInput) => Promise<void>;
+    stashShow: (input: GitStashShowInput) => Promise<GitStashShowResult>;
+    stashShowFiles: (input: GitStashShowInput) => Promise<GitStashShowFilesResult>;
+    stashShowFile: (input: GitStashShowFileInput) => Promise<GitStashShowFileResult>;
+    stashRestoreFile: (input: GitStashRestoreFileInput) => Promise<void>;
+    // Generate commit message API
+    generateCommitMessage: (
+      input: GitGenerateCommitMessageInput,
+    ) => Promise<GitGenerateCommitMessageResult>;
+    // Worktree + PR list API
+    listWorktrees: (input: GitListWorktreesInput) => Promise<GitListWorktreesResult>;
+    listPullRequests: (input: GitListPullRequestsInput) => Promise<GitListPullRequestsResult>;
+    // Log API
+    log: (input: GitLogInput) => Promise<GitLogResult>;
     // Stacked action API
     pull: (input: GitPullInput) => Promise<GitPullResult>;
     status: (input: GitStatusInput) => Promise<GitStatusResult>;

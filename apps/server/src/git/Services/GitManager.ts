@@ -8,6 +8,10 @@
  */
 import {
   GitActionProgressEvent,
+  GitGenerateCommitMessageInput,
+  GitGenerateCommitMessageResult,
+  GitListPullRequestsInput,
+  GitListPullRequestsResult,
   GitPreparePullRequestThreadInput,
   GitPreparePullRequestThreadResult,
   GitPullRequestRefInput,
@@ -63,6 +67,20 @@ export interface GitManagerShape {
     input: GitRunStackedActionInput,
     options?: GitRunStackedActionOptions,
   ) => Effect.Effect<GitRunStackedActionResult, GitManagerServiceError>;
+
+  /**
+   * List pull requests for the repository using the GitHub CLI.
+   */
+  readonly listPullRequests: (
+    input: GitListPullRequestsInput,
+  ) => Effect.Effect<GitListPullRequestsResult, GitManagerServiceError>;
+
+  /**
+   * Generate a commit message for currently staged changes using AI.
+   */
+  readonly generateCommitMessage: (
+    input: GitGenerateCommitMessageInput,
+  ) => Effect.Effect<GitGenerateCommitMessageResult, GitManagerServiceError>;
 }
 
 /**
