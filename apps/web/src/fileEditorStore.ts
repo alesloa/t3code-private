@@ -7,6 +7,9 @@ export interface FileEditorTab {
   cwd: string;
 }
 
+// Virtual tab prefix for "Generate Image" mode (no existing file)
+export const GENERATE_IMAGE_PREFIX = "__generate_image__/";
+
 interface ThreadFileEditorState {
   open: boolean;
   tabs: FileEditorTab[];

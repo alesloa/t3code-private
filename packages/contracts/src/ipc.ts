@@ -21,12 +21,18 @@ import type {
 } from "./git";
 import type {
   ProjectListEntriesInput,
+  ProjectDeleteFileInput,
+  ProjectDeleteFileResult,
   ProjectListEntriesResult,
   ProjectReadFileBase64Result,
   ProjectReadFileInput,
   ProjectReadFileResult,
+  ProjectRenameFileInput,
+  ProjectRenameFileResult,
   ProjectSearchEntriesInput,
   ProjectSearchEntriesResult,
+  ProjectWriteFileBase64Input,
+  ProjectWriteFileBase64Result,
   ProjectWriteFileInput,
   ProjectWriteFileResult,
 } from "./project";
@@ -141,7 +147,10 @@ export interface NativeApi {
     listEntries: (input: ProjectListEntriesInput) => Promise<ProjectListEntriesResult>;
     readFile: (input: ProjectReadFileInput) => Promise<ProjectReadFileResult>;
     readFileBase64: (input: ProjectReadFileInput) => Promise<ProjectReadFileBase64Result>;
+    renameFile: (input: ProjectRenameFileInput) => Promise<ProjectRenameFileResult>;
+    deleteFile: (input: ProjectDeleteFileInput) => Promise<ProjectDeleteFileResult>;
     writeFile: (input: ProjectWriteFileInput) => Promise<ProjectWriteFileResult>;
+    writeFileBase64: (input: ProjectWriteFileBase64Input) => Promise<ProjectWriteFileBase64Result>;
   };
   shell: {
     openInEditor: (cwd: string, editor: EditorId) => Promise<void>;

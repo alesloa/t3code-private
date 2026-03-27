@@ -2,7 +2,7 @@ import { ThreadId } from "@t3tools/contracts";
 import { useParams } from "@tanstack/react-router";
 import { EyeIcon, FileWarningIcon, LoaderIcon, PencilIcon, SaveIcon, XIcon } from "lucide-react";
 import { memo, useCallback, useEffect, useRef, useState } from "react";
-import { useFileEditorStore, type FileEditorTab } from "~/fileEditorStore";
+import { GENERATE_IMAGE_PREFIX, useFileEditorStore, type FileEditorTab } from "~/fileEditorStore";
 import { useTheme } from "~/hooks/useTheme";
 import {
   isBinaryContent,
@@ -19,6 +19,7 @@ import { MarkdownPreview } from "./MarkdownPreview";
 import { Button } from "./ui/button";
 import { toastManager } from "./ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
+import { AiImageEditor } from "./AiImageEditor";
 import { VscodeEntryIcon } from "./chat/VscodeEntryIcon";
 
 // ── Tab strip ─────────────────────────────────────────────────────────
@@ -33,7 +34,11 @@ const EditorTab = memo(function EditorTab(props: {
   onClose: (index: number) => void;
 }) {
   const { tab, index, isActive, isDirty, resolvedTheme, onSelect, onClose } = props;
-  const fileName = baseName(tab.relativePath);
+  const isGenTab = tab.relativePath.startsWith(GENERATE_IMAGE_PREFIX);
+  const fileName = isGenTab ? "Generate Image" : baseName(tab.relativePath);
+  const displayPath = isGenTab
+    ? tab.relativePath.slice(GENERATE_IMAGE_PREFIX.length)
+    : tab.relativePath;
 
   return (
     <button
@@ -45,10 +50,10 @@ const EditorTab = memo(function EditorTab(props: {
           : "border-transparent text-muted-foreground hover:text-foreground/80",
       )}
       onClick={() => onSelect(index)}
-      title={tab.relativePath}
+      title={displayPath}
     >
       <VscodeEntryIcon
-        pathValue={tab.relativePath}
+        pathValue={isGenTab ? "image.png" : tab.relativePath}
         kind="file"
         theme={resolvedTheme}
         className="size-3.5 shrink-0"
@@ -81,8 +86,20 @@ const EditorTab = memo(function EditorTab(props: {
 const FileContentView = memo(function FileContentView(props: {
   tab: FileEditorTab;
   theme: "light" | "dark";
+  threadId: string | null;
 }) {
-  const { tab, theme } = props;
+  const { tab, theme, threadId } = props;
+
+  // Virtual "Generate Image" tab — no file to load, just show the AI editor
+  if (tab.relativePath.startsWith(GENERATE_IMAGE_PREFIX)) {
+    const folderPath = tab.relativePath.slice(GENERATE_IMAGE_PREFIX.length);
+    return threadId ? (
+      <div className="flex min-h-0 flex-1 flex-col overflow-auto">
+        <AiImageEditor cwd={tab.cwd} relativePath={folderPath} threadId={threadId} />
+      </div>
+    ) : null;
+  }
+
   const [contents, setContents] = useState<string | null>(null);
   const [savedContents, setSavedContents] = useState<string | null>(null);
   const [imageDataUrl, setImageDataUrl] = useState<string | null>(null);
@@ -232,15 +249,27 @@ const FileContentView = memo(function FileContentView(props: {
     );
   }
 
-  // Image preview (no editor toolbar needed)
+  // Image preview + AI editor
   if (imageDataUrl) {
+    const { mimeType: imgMime, base64: imgBase64 } = parseDataUrl(imageDataUrl);
     return (
-      <div className="flex min-h-0 flex-1 items-center justify-center overflow-auto bg-[repeating-conic-gradient(hsl(var(--muted))_0%_25%,transparent_0%_50%)] bg-[length:16px_16px] p-6">
-        <img
-          src={imageDataUrl}
-          alt={baseName(tab.relativePath)}
-          className="max-h-full max-w-full object-contain"
-        />
+      <div className="flex min-h-0 flex-1 flex-col overflow-auto">
+        <div className="flex flex-1 items-center justify-center bg-[repeating-conic-gradient(hsl(var(--muted))_0%_25%,transparent_0%_50%)] bg-[length:16px_16px] p-6">
+          <img
+            src={imageDataUrl}
+            alt={baseName(tab.relativePath)}
+            className="max-h-full max-w-full object-contain"
+          />
+        </div>
+        {threadId ? (
+          <AiImageEditor
+            cwd={tab.cwd}
+            relativePath={tab.relativePath}
+            base64={imgBase64}
+            mimeType={imgMime}
+            threadId={threadId}
+          />
+        ) : null}
       </div>
     );
   }
@@ -385,6 +414,7 @@ function FileEditorPanel(props: { mode: FileEditorPanelMode }) {
           key={`${activeTab.cwd}:${activeTab.relativePath}`}
           tab={activeTab}
           theme={resolvedTheme}
+          threadId={activeThreadId}
         />
       ) : (
         <div className="flex flex-1 items-center justify-center text-xs text-muted-foreground/60">
@@ -408,4 +438,10 @@ function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function parseDataUrl(url: string): { mimeType: string; base64: string } {
+  const match = url.match(/^data:([^;]+);base64,(.+)$/);
+  if (!match) return { mimeType: "application/octet-stream", base64: "" };
+  return { mimeType: match[1]!, base64: match[2]! };
 }

@@ -57,6 +57,43 @@ export const ProjectReadFileBase64Result = Schema.Struct({
 });
 export type ProjectReadFileBase64Result = typeof ProjectReadFileBase64Result.Type;
 
+export const ProjectRenameFileInput = Schema.Struct({
+  cwd: TrimmedNonEmptyString,
+  relativePath: TrimmedNonEmptyString.check(Schema.isMaxLength(PROJECT_WRITE_FILE_PATH_MAX_LENGTH)),
+  newRelativePath: TrimmedNonEmptyString.check(
+    Schema.isMaxLength(PROJECT_WRITE_FILE_PATH_MAX_LENGTH),
+  ),
+});
+export type ProjectRenameFileInput = typeof ProjectRenameFileInput.Type;
+
+export const ProjectRenameFileResult = Schema.Struct({
+  relativePath: TrimmedNonEmptyString,
+});
+export type ProjectRenameFileResult = typeof ProjectRenameFileResult.Type;
+
+export const ProjectDeleteFileInput = Schema.Struct({
+  cwd: TrimmedNonEmptyString,
+  relativePath: TrimmedNonEmptyString.check(Schema.isMaxLength(PROJECT_WRITE_FILE_PATH_MAX_LENGTH)),
+});
+export type ProjectDeleteFileInput = typeof ProjectDeleteFileInput.Type;
+
+export const ProjectDeleteFileResult = Schema.Struct({
+  relativePath: TrimmedNonEmptyString,
+});
+export type ProjectDeleteFileResult = typeof ProjectDeleteFileResult.Type;
+
+export const ProjectWriteFileBase64Input = Schema.Struct({
+  cwd: TrimmedNonEmptyString,
+  relativePath: TrimmedNonEmptyString.check(Schema.isMaxLength(PROJECT_WRITE_FILE_PATH_MAX_LENGTH)),
+  base64: Schema.String,
+});
+export type ProjectWriteFileBase64Input = typeof ProjectWriteFileBase64Input.Type;
+
+export const ProjectWriteFileBase64Result = Schema.Struct({
+  relativePath: TrimmedNonEmptyString,
+});
+export type ProjectWriteFileBase64Result = typeof ProjectWriteFileBase64Result.Type;
+
 export const ProjectWriteFileInput = Schema.Struct({
   cwd: TrimmedNonEmptyString,
   relativePath: TrimmedNonEmptyString.check(Schema.isMaxLength(PROJECT_WRITE_FILE_PATH_MAX_LENGTH)),

@@ -854,6 +854,56 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
         return { relativePath: target.relativePath, base64, mimeType };
       }
 
+      case WS_METHODS.projectsRenameFile: {
+        const body = stripRequestTag(request.body);
+        const source = yield* resolveWorkspacePath({
+          workspaceRoot: body.cwd,
+          relativePath: body.relativePath,
+          path,
+        });
+        const dest = yield* resolveWorkspacePath({
+          workspaceRoot: body.cwd,
+          relativePath: body.newRelativePath,
+          path,
+        });
+        // Ensure destination parent directory exists
+        yield* fileSystem.makeDirectory(path.dirname(dest.absolutePath), { recursive: true }).pipe(
+          Effect.mapError(
+            (cause) =>
+              new RouteRequestError({
+                message: `Failed to create destination directory: ${String(cause)}`,
+              }),
+          ),
+        );
+        yield* fileSystem.rename(source.absolutePath, dest.absolutePath).pipe(
+          Effect.mapError(
+            (cause) =>
+              new RouteRequestError({
+                message: `Failed to rename file: ${String(cause)}`,
+              }),
+          ),
+        );
+        return { relativePath: dest.relativePath };
+      }
+
+      case WS_METHODS.projectsDeleteFile: {
+        const body = stripRequestTag(request.body);
+        const target = yield* resolveWorkspacePath({
+          workspaceRoot: body.cwd,
+          relativePath: body.relativePath,
+          path,
+        });
+        yield* fileSystem.remove(target.absolutePath, { recursive: true }).pipe(
+          Effect.mapError(
+            (cause) =>
+              new RouteRequestError({
+                message: `Failed to delete file: ${String(cause)}`,
+              }),
+          ),
+        );
+        return { relativePath: target.relativePath };
+      }
+
       case WS_METHODS.projectsWriteFile: {
         const body = stripRequestTag(request.body);
         const target = yield* resolveWorkspacePath({
@@ -872,6 +922,35 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
             ),
           );
         yield* fileSystem.writeFileString(target.absolutePath, body.contents).pipe(
+          Effect.mapError(
+            (cause) =>
+              new RouteRequestError({
+                message: `Failed to write workspace file: ${String(cause)}`,
+              }),
+          ),
+        );
+        return { relativePath: target.relativePath };
+      }
+
+      case WS_METHODS.projectsWriteFileBase64: {
+        const body = stripRequestTag(request.body);
+        const target = yield* resolveWorkspacePath({
+          workspaceRoot: body.cwd,
+          relativePath: body.relativePath,
+          path,
+        });
+        yield* fileSystem
+          .makeDirectory(path.dirname(target.absolutePath), { recursive: true })
+          .pipe(
+            Effect.mapError(
+              (cause) =>
+                new RouteRequestError({
+                  message: `Failed to prepare workspace path: ${String(cause)}`,
+                }),
+            ),
+          );
+        const bytes = Buffer.from(body.base64, "base64");
+        yield* fileSystem.writeFile(target.absolutePath, bytes).pipe(
           Effect.mapError(
             (cause) =>
               new RouteRequestError({

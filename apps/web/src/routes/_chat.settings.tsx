@@ -2,6 +2,8 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ChevronDownIcon,
+  EyeIcon,
+  EyeOffIcon,
   InfoIcon,
   LoaderIcon,
   PlusIcon,
@@ -280,6 +282,71 @@ function SettingResetButton({ label, onClick }: { label: string; onClick: () => 
       />
       <TooltipPopup side="top">Reset to default</TooltipPopup>
     </Tooltip>
+  );
+}
+
+function GeminiApiKeySection() {
+  const geminiApiKey = useSettings().geminiApiKey;
+  const { updateSettings } = useUpdateSettings();
+  const [showKey, setShowKey] = useState(false);
+  const [localKey, setLocalKey] = useState(geminiApiKey);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    setLocalKey(geminiApiKey);
+  }, [geminiApiKey]);
+
+  const handleSave = useCallback(() => {
+    const trimmed = localKey.trim();
+    if (trimmed !== geminiApiKey) {
+      updateSettings({ geminiApiKey: trimmed });
+    }
+  }, [localKey, geminiApiKey, updateSettings]);
+
+  return (
+    <SettingsSection title="AI Image Generation">
+      <SettingsRow
+        title="Gemini API key"
+        description="Your Google Gemini API key for Nanabanana image generation."
+        resetAction={
+          geminiApiKey ? (
+            <SettingResetButton
+              label="Gemini API key"
+              onClick={() => updateSettings({ geminiApiKey: "" })}
+            />
+          ) : null
+        }
+        control={
+          <div className="flex items-center gap-1.5">
+            <Input
+              ref={inputRef}
+              type={showKey ? "text" : "password"}
+              className="w-56 font-mono text-xs"
+              placeholder="AIza..."
+              value={localKey}
+              spellCheck={false}
+              onChange={(e) => setLocalKey(e.target.value)}
+              onBlur={handleSave}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  handleSave();
+                  inputRef.current?.blur();
+                }
+              }}
+            />
+            <Button
+              size="icon-xs"
+              variant="ghost"
+              className="size-7 shrink-0"
+              aria-label={showKey ? "Hide API key" : "Show API key"}
+              onClick={() => setShowKey((v) => !v)}
+            >
+              {showKey ? <EyeOffIcon className="size-3.5" /> : <EyeIcon className="size-3.5" />}
+            </Button>
+          </div>
+        }
+      />
+    </SettingsSection>
   );
 }
 
@@ -1264,6 +1331,8 @@ function SettingsRouteView() {
                 );
               })}
             </SettingsSection>
+
+            <GeminiApiKeySection />
 
             <SettingsSection title="Advanced">
               <SettingsRow

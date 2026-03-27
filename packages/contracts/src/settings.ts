@@ -82,6 +82,8 @@ export const ServerSettings = Schema.Struct({
     })),
   ),
 
+  geminiApiKey: Schema.String.pipe(Schema.withDecodingDefault(() => "")),
+
   // Provider specific settings
   providers: Schema.Struct({
     codex: CodexSettings.pipe(Schema.withDecodingDefault(() => ({}))),
@@ -143,6 +145,7 @@ export const ServerSettingsPatch = Schema.Struct({
   enableAssistantStreaming: Schema.optionalKey(Schema.Boolean),
   defaultThreadEnvMode: Schema.optionalKey(ThreadEnvMode),
   textGenerationModelSelection: Schema.optionalKey(ModelSelectionPatch),
+  geminiApiKey: Schema.optionalKey(Schema.String),
   providers: Schema.optionalKey(
     Schema.Struct({
       codex: Schema.optionalKey(CodexSettingsPatch),

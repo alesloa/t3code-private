@@ -160,7 +160,10 @@ export function createWsNativeApi(): NativeApi {
       listEntries: (input) => transport.request(WS_METHODS.projectsListEntries, input),
       readFile: (input) => transport.request(WS_METHODS.projectsReadFile, input),
       readFileBase64: (input) => transport.request(WS_METHODS.projectsReadFileBase64, input),
+      renameFile: (input) => transport.request(WS_METHODS.projectsRenameFile, input),
+      deleteFile: (input) => transport.request(WS_METHODS.projectsDeleteFile, input),
       writeFile: (input) => transport.request(WS_METHODS.projectsWriteFile, input),
+      writeFileBase64: (input) => transport.request(WS_METHODS.projectsWriteFileBase64, input),
     },
     shell: {
       openInEditor: (cwd, editor) =>

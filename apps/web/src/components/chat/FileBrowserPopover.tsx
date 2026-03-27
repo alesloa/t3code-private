@@ -1,5 +1,5 @@
 import type { ProjectEntry, ThreadId } from "@t3tools/contracts";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ChevronRightIcon,
   FolderClosedIcon,
@@ -12,7 +12,7 @@ import {
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { openInPreferredEditor } from "~/editorPreferences";
-import { useFileEditorStore } from "~/fileEditorStore";
+import { GENERATE_IMAGE_PREFIX, useFileEditorStore } from "~/fileEditorStore";
 import { useMediaQuery } from "~/hooks/useMediaQuery";
 import { useTheme } from "~/hooks/useTheme";
 import {
@@ -20,7 +20,7 @@ import {
   projectSearchEntriesQueryOptions,
 } from "~/lib/projectReactQuery";
 import { cn } from "~/lib/utils";
-import { readNativeApi } from "~/nativeApi";
+import { ensureNativeApi, readNativeApi } from "~/nativeApi";
 import { stripDiffSearchParams } from "~/diffRouteSearch";
 import { Sheet, SheetPopup, SheetHeader, SheetTitle } from "../ui/sheet";
 import { toastManager } from "../ui/toast";
@@ -80,7 +80,18 @@ function useLongPress(onLongPress: (position: { x: number; y: number }) => void)
 
 // ── Context menu helpers ─────────────────────────────────────────────
 
-type ContextMenuAction = "open-in-editor" | "copy-path" | "copy-relative-path" | "copy-name";
+type ContextMenuAction =
+  | "open-in-editor"
+  | "copy-path"
+  | "copy-relative-path"
+  | "copy-name"
+  | "new-file"
+  | "new-folder"
+  | "upload-file"
+  | "rename"
+  | "duplicate"
+  | "delete"
+  | "generate-image";
 
 function copyToClipboard(value: string, label: string) {
   if (!navigator.clipboard?.writeText) return;
@@ -95,29 +106,43 @@ async function showEntryContextMenu(
   entry: ProjectEntry,
   position: { x: number; y: number },
   isTouchDevice: boolean,
-) {
+): Promise<ContextMenuAction | null> {
   const api = readNativeApi();
-  if (!api) return;
+  if (!api) return null;
 
-  const absolutePath = `${cwd}/${entry.path}`;
+  const absolutePath = entry.path === "." ? cwd : `${cwd}/${entry.path}`;
+  const isRoot = entry.path === ".";
   const isFile = entry.kind === "file";
+  const isDir = entry.kind === "directory";
   const showEditorOption = !isTouchDevice;
 
   const items = [
     ...(showEditorOption && isFile
       ? [{ id: "open-in-editor" as const, label: "Open in Editor" }]
       : []),
+    ...(isDir
+      ? [
+          { id: "new-file" as const, label: "New File" },
+          { id: "new-folder" as const, label: "New Folder" },
+          { id: "upload-file" as const, label: "Upload File" },
+          { id: "generate-image" as const, label: "Generate Image" },
+        ]
+      : []),
+    ...(isRoot ? [] : [{ id: "rename" as const, label: "Rename" }]),
+    ...(isRoot ? [] : [{ id: "duplicate" as const, label: "Duplicate" }]),
     { id: "copy-path" as const, label: "Copy Path" },
-    { id: "copy-relative-path" as const, label: "Copy Relative Path" },
+    ...(isRoot ? [] : [{ id: "copy-relative-path" as const, label: "Copy Relative Path" }]),
     { id: "copy-name" as const, label: "Copy Name" },
-    ...(showEditorOption && !isFile
+    ...(showEditorOption && isDir
       ? [{ id: "open-in-editor" as const, label: "Open in Editor" }]
       : []),
+    ...(isRoot ? [] : [{ id: "delete" as const, label: "Delete" }]),
   ];
 
   const clicked = await api.contextMenu.show<ContextMenuAction>(items, position);
-  if (!clicked) return;
+  if (!clicked) return null;
 
+  // Handle actions that don't need component state
   switch (clicked) {
     case "open-in-editor":
       void openInPreferredEditor(api, absolutePath).catch((error) => {
@@ -127,16 +152,168 @@ async function showEntryContextMenu(
           description: error instanceof Error ? error.message : "An error occurred.",
         });
       });
-      break;
+      return null;
     case "copy-path":
       copyToClipboard(absolutePath, "Path");
-      break;
+      return null;
     case "copy-relative-path":
       copyToClipboard(entry.path, "Relative path");
-      break;
+      return null;
     case "copy-name":
       copyToClipboard(baseName(entry.path), "Name");
-      break;
+      return null;
+    default:
+      // new-file, new-folder, upload-file — return to caller
+      return clicked;
+  }
+}
+
+async function handleNewFile(cwd: string, parentPath: string): Promise<boolean> {
+  const name = window.prompt("Enter file name:");
+  if (!name?.trim()) return false;
+  const relativePath = parentPath ? `${parentPath}/${name.trim()}` : name.trim();
+  try {
+    const api = ensureNativeApi();
+    await api.projects.writeFile({ cwd, relativePath, contents: "" });
+    toastManager.add({ type: "success", title: "File created", description: relativePath });
+    return true;
+  } catch (err) {
+    toastManager.add({
+      type: "error",
+      title: "Failed to create file",
+      description: err instanceof Error ? err.message : "An error occurred.",
+    });
+    return false;
+  }
+}
+
+async function handleNewFolder(cwd: string, parentPath: string): Promise<boolean> {
+  const name = window.prompt("Enter folder name:");
+  if (!name?.trim()) return false;
+  // Create a folder by writing a .gitkeep file inside it
+  const relativePath = parentPath
+    ? `${parentPath}/${name.trim()}/.gitkeep`
+    : `${name.trim()}/.gitkeep`;
+  try {
+    const api = ensureNativeApi();
+    await api.projects.writeFile({ cwd, relativePath, contents: "" });
+    toastManager.add({
+      type: "success",
+      title: "Folder created",
+      description: parentPath ? `${parentPath}/${name.trim()}` : name.trim(),
+    });
+    return true;
+  } catch (err) {
+    toastManager.add({
+      type: "error",
+      title: "Failed to create folder",
+      description: err instanceof Error ? err.message : "An error occurred.",
+    });
+    return false;
+  }
+}
+
+function triggerFileUpload(cwd: string, parentPath: string, onDone: () => void) {
+  const input = document.createElement("input");
+  input.type = "file";
+  input.multiple = true;
+  input.addEventListener("change", async () => {
+    const files = input.files;
+    if (!files || files.length === 0) return;
+
+    for (const file of files) {
+      const relativePath = parentPath ? `${parentPath}/${file.name}` : file.name;
+      try {
+        const api = ensureNativeApi();
+        const buffer = await file.arrayBuffer();
+        const bytes = new Uint8Array(buffer);
+        let binary = "";
+        for (let i = 0; i < bytes.length; i++) {
+          binary += String.fromCharCode(bytes[i]!);
+        }
+        const base64 = btoa(binary);
+        await api.projects.writeFileBase64({ cwd, relativePath, base64 });
+        toastManager.add({ type: "success", title: "File uploaded", description: file.name });
+      } catch (err) {
+        toastManager.add({
+          type: "error",
+          title: `Failed to upload ${file.name}`,
+          description: err instanceof Error ? err.message : "An error occurred.",
+        });
+      }
+    }
+    onDone();
+  });
+  input.click();
+}
+
+async function handleRenameEntry(cwd: string, relativePath: string): Promise<boolean> {
+  const currentName = baseName(relativePath);
+  const newName = window.prompt("Enter new name:", currentName);
+  if (!newName?.trim() || newName.trim() === currentName) return false;
+  const parentDir = relativePath.includes("/")
+    ? relativePath.slice(0, relativePath.lastIndexOf("/"))
+    : "";
+  const newRelativePath = parentDir ? `${parentDir}/${newName.trim()}` : newName.trim();
+  try {
+    const api = ensureNativeApi();
+    await api.projects.renameFile({ cwd, relativePath, newRelativePath });
+    toastManager.add({ type: "success", title: "Renamed", description: newRelativePath });
+    return true;
+  } catch (err) {
+    toastManager.add({
+      type: "error",
+      title: "Failed to rename",
+      description: err instanceof Error ? err.message : "An error occurred.",
+    });
+    return false;
+  }
+}
+
+async function handleDuplicateEntry(cwd: string, relativePath: string): Promise<boolean> {
+  const ext = relativePath.includes(".") ? relativePath.slice(relativePath.lastIndexOf(".")) : "";
+  const nameWithoutExt = ext ? relativePath.slice(0, relativePath.lastIndexOf(".")) : relativePath;
+  const newRelativePath = `${nameWithoutExt} copy${ext}`;
+  try {
+    const api = ensureNativeApi();
+    // Read original and write copy
+    const original = await api.projects.readFileBase64({ cwd, relativePath });
+    await api.projects.writeFileBase64({
+      cwd,
+      relativePath: newRelativePath,
+      base64: original.base64,
+    });
+    toastManager.add({
+      type: "success",
+      title: "Duplicated",
+      description: baseName(newRelativePath),
+    });
+    return true;
+  } catch (err) {
+    toastManager.add({
+      type: "error",
+      title: "Failed to duplicate",
+      description: err instanceof Error ? err.message : "An error occurred.",
+    });
+    return false;
+  }
+}
+
+async function handleDeleteEntry(cwd: string, relativePath: string): Promise<boolean> {
+  const confirmed = window.confirm(`Delete "${baseName(relativePath)}"?\n\nThis cannot be undone.`);
+  if (!confirmed) return false;
+  try {
+    const api = ensureNativeApi();
+    await api.projects.deleteFile({ cwd, relativePath });
+    toastManager.add({ type: "success", title: "Deleted", description: relativePath });
+    return true;
+  } catch (err) {
+    toastManager.add({
+      type: "error",
+      title: "Failed to delete",
+      description: err instanceof Error ? err.message : "An error occurred.",
+    });
+    return false;
   }
 }
 
@@ -151,6 +328,7 @@ const DirectoryNode = memo(function DirectoryNode(props: {
   expandedDirectories: Record<string, boolean>;
   onToggleDirectory: (path: string) => void;
   onOpenFile: (relativePath: string) => void;
+  onRefreshTree: () => void;
 }) {
   const {
     entry,
@@ -161,6 +339,7 @@ const DirectoryNode = memo(function DirectoryNode(props: {
     expandedDirectories,
     onToggleDirectory,
     onOpenFile,
+    onRefreshTree,
   } = props;
   const isExpanded = expandedDirectories[entry.path] ?? false;
   const leftPadding = 12 + depth * 16;
@@ -175,9 +354,36 @@ const DirectoryNode = memo(function DirectoryNode(props: {
 
   const triggerContextMenu = useCallback(
     (position: { x: number; y: number }) => {
-      void showEntryContextMenu(cwd, entry, position, isTouchDevice);
+      void showEntryContextMenu(cwd, entry, position, isTouchDevice).then(async (action) => {
+        if (!action) return;
+        let changed = false;
+        switch (action) {
+          case "new-file":
+            changed = await handleNewFile(cwd, entry.path);
+            break;
+          case "new-folder":
+            changed = await handleNewFolder(cwd, entry.path);
+            break;
+          case "upload-file":
+            triggerFileUpload(cwd, entry.path, onRefreshTree);
+            return;
+          case "generate-image":
+            onOpenFile(`${GENERATE_IMAGE_PREFIX}${entry.path}`);
+            return;
+          case "rename":
+            changed = await handleRenameEntry(cwd, entry.path);
+            break;
+          case "duplicate":
+            changed = await handleDuplicateEntry(cwd, entry.path);
+            break;
+          case "delete":
+            changed = await handleDeleteEntry(cwd, entry.path);
+            break;
+        }
+        if (changed) onRefreshTree();
+      });
     },
-    [cwd, entry, isTouchDevice],
+    [cwd, entry, isTouchDevice, onRefreshTree, onOpenFile],
   );
 
   const handleContextMenu = useCallback(
@@ -239,6 +445,7 @@ const DirectoryNode = memo(function DirectoryNode(props: {
                 expandedDirectories={expandedDirectories}
                 onToggleDirectory={onToggleDirectory}
                 onOpenFile={onOpenFile}
+                onRefreshTree={onRefreshTree}
               />
             ) : (
               <FileNode
@@ -249,6 +456,7 @@ const DirectoryNode = memo(function DirectoryNode(props: {
                 resolvedTheme={resolvedTheme}
                 isTouchDevice={isTouchDevice}
                 onOpenFile={onOpenFile}
+                onRefreshTree={onRefreshTree}
               />
             ),
           )}
@@ -267,15 +475,31 @@ const FileNode = memo(function FileNode(props: {
   resolvedTheme: "light" | "dark";
   isTouchDevice: boolean;
   onOpenFile: (relativePath: string) => void;
+  onRefreshTree: () => void;
 }) {
-  const { entry, cwd, depth, resolvedTheme, isTouchDevice, onOpenFile } = props;
+  const { entry, cwd, depth, resolvedTheme, isTouchDevice, onOpenFile, onRefreshTree } = props;
   const leftPadding = 12 + depth * 16;
 
   const triggerContextMenu = useCallback(
     (position: { x: number; y: number }) => {
-      void showEntryContextMenu(cwd, entry, position, isTouchDevice);
+      void showEntryContextMenu(cwd, entry, position, isTouchDevice).then(async (action) => {
+        if (!action) return;
+        let changed = false;
+        switch (action) {
+          case "rename":
+            changed = await handleRenameEntry(cwd, entry.path);
+            break;
+          case "duplicate":
+            changed = await handleDuplicateEntry(cwd, entry.path);
+            break;
+          case "delete":
+            changed = await handleDeleteEntry(cwd, entry.path);
+            break;
+        }
+        if (changed) onRefreshTree();
+      });
     },
-    [cwd, entry, isTouchDevice],
+    [cwd, entry, isTouchDevice, onRefreshTree],
   );
 
   const handleContextMenu = useCallback(
@@ -379,8 +603,9 @@ const SearchTreeDirNode = memo(function SearchTreeDirNode(props: {
   resolvedTheme: "light" | "dark";
   isTouchDevice: boolean;
   onOpenFile: (relativePath: string) => void;
+  onRefreshTree: () => void;
 }) {
-  const { node, cwd, depth, resolvedTheme, isTouchDevice, onOpenFile } = props;
+  const { node, cwd, depth, resolvedTheme, isTouchDevice, onOpenFile, onRefreshTree } = props;
   const [expanded, setExpanded] = useState(true);
   const leftPadding = 12 + depth * 16;
 
@@ -398,9 +623,36 @@ const SearchTreeDirNode = memo(function SearchTreeDirNode(props: {
 
   const triggerContextMenu = useCallback(
     (position: { x: number; y: number }) => {
-      void showEntryContextMenu(cwd, dirEntry, position, isTouchDevice);
+      void showEntryContextMenu(cwd, dirEntry, position, isTouchDevice).then(async (action) => {
+        if (!action) return;
+        let changed = false;
+        switch (action) {
+          case "new-file":
+            changed = await handleNewFile(cwd, dirEntry.path);
+            break;
+          case "new-folder":
+            changed = await handleNewFolder(cwd, dirEntry.path);
+            break;
+          case "upload-file":
+            triggerFileUpload(cwd, dirEntry.path, onRefreshTree);
+            return;
+          case "generate-image":
+            onOpenFile(`${GENERATE_IMAGE_PREFIX}${dirEntry.path}`);
+            return;
+          case "rename":
+            changed = await handleRenameEntry(cwd, dirEntry.path);
+            break;
+          case "duplicate":
+            changed = await handleDuplicateEntry(cwd, dirEntry.path);
+            break;
+          case "delete":
+            changed = await handleDeleteEntry(cwd, dirEntry.path);
+            break;
+        }
+        if (changed) onRefreshTree();
+      });
     },
-    [cwd, dirEntry, isTouchDevice],
+    [cwd, dirEntry, isTouchDevice, onRefreshTree, onOpenFile],
   );
 
   const handleContextMenu = useCallback(
@@ -451,6 +703,7 @@ const SearchTreeDirNode = memo(function SearchTreeDirNode(props: {
                 resolvedTheme={resolvedTheme}
                 isTouchDevice={isTouchDevice}
                 onOpenFile={onOpenFile}
+                onRefreshTree={onRefreshTree}
               />
             ) : child.entry ? (
               <SearchTreeFileNode
@@ -461,6 +714,7 @@ const SearchTreeDirNode = memo(function SearchTreeDirNode(props: {
                 resolvedTheme={resolvedTheme}
                 isTouchDevice={isTouchDevice}
                 onOpenFile={onOpenFile}
+                onRefreshTree={onRefreshTree}
               />
             ) : null,
           )}
@@ -477,15 +731,32 @@ const SearchTreeFileNode = memo(function SearchTreeFileNode(props: {
   resolvedTheme: "light" | "dark";
   isTouchDevice: boolean;
   onOpenFile: (relativePath: string) => void;
+  onRefreshTree: () => void;
 }) {
-  const { node, cwd, depth, resolvedTheme, isTouchDevice, onOpenFile } = props;
+  const { node, cwd, depth, resolvedTheme, isTouchDevice, onOpenFile, onRefreshTree } = props;
   const leftPadding = 12 + depth * 16;
 
   const triggerContextMenu = useCallback(
     (position: { x: number; y: number }) => {
-      if (node.entry) void showEntryContextMenu(cwd, node.entry, position, isTouchDevice);
+      if (!node.entry) return;
+      void showEntryContextMenu(cwd, node.entry, position, isTouchDevice).then(async (action) => {
+        if (!action) return;
+        let changed = false;
+        switch (action) {
+          case "rename":
+            changed = await handleRenameEntry(cwd, node.fullPath);
+            break;
+          case "duplicate":
+            changed = await handleDuplicateEntry(cwd, node.fullPath);
+            break;
+          case "delete":
+            changed = await handleDeleteEntry(cwd, node.fullPath);
+            break;
+        }
+        if (changed) onRefreshTree();
+      });
     },
-    [cwd, node.entry, isTouchDevice],
+    [cwd, node.entry, node.fullPath, isTouchDevice, onRefreshTree],
   );
 
   const handleContextMenu = useCallback(
@@ -527,8 +798,9 @@ const SearchResultsTree = memo(function SearchResultsTree(props: {
   resolvedTheme: "light" | "dark";
   isTouchDevice: boolean;
   onOpenFile: (relativePath: string) => void;
+  onRefreshTree: () => void;
 }) {
-  const { entries, cwd, resolvedTheme, isTouchDevice, onOpenFile } = props;
+  const { entries, cwd, resolvedTheme, isTouchDevice, onOpenFile, onRefreshTree } = props;
   const tree = useMemo(() => buildSearchTree(entries), [entries]);
 
   return (
@@ -543,6 +815,7 @@ const SearchResultsTree = memo(function SearchResultsTree(props: {
             resolvedTheme={resolvedTheme}
             isTouchDevice={isTouchDevice}
             onOpenFile={onOpenFile}
+            onRefreshTree={onRefreshTree}
           />
         ) : node.entry ? (
           <SearchTreeFileNode
@@ -553,6 +826,7 @@ const SearchResultsTree = memo(function SearchResultsTree(props: {
             resolvedTheme={resolvedTheme}
             isTouchDevice={isTouchDevice}
             onOpenFile={onOpenFile}
+            onRefreshTree={onRefreshTree}
           />
         ) : null,
       )}
@@ -570,6 +844,7 @@ export const FileBrowserPanel = memo(function FileBrowserPanel(props: {
   const { resolvedTheme } = useTheme();
   const isTouchDevice = useMediaQuery({ pointer: "coarse" });
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const openFileInEditor = useFileEditorStore((s) => s.openFile);
   const [open, setOpen] = useState(false);
   const [activeCwd, setActiveCwd] = useState<string | null>(cwd);
@@ -676,6 +951,87 @@ export const FileBrowserPanel = memo(function FileBrowserPanel(props: {
     searchInputRef.current?.focus();
   }, []);
 
+  const onRefreshTree = useCallback(() => {
+    if (!activeCwd) return;
+    // Invalidate all list-entries and search-entries queries for this cwd
+    void queryClient.invalidateQueries({
+      queryKey: ["projects", "list-entries", activeCwd],
+    });
+    void queryClient.invalidateQueries({
+      queryKey: ["projects", "search-entries", activeCwd],
+    });
+  }, [activeCwd, queryClient]);
+
+  const handleRootContextMenu = useCallback(
+    (e: React.MouseEvent) => {
+      if (!activeCwd) return;
+      e.preventDefault();
+      const rootEntry: ProjectEntry = {
+        path: ".",
+        kind: "directory" as const,
+      };
+      void showEntryContextMenu(
+        activeCwd,
+        rootEntry,
+        { x: e.clientX, y: e.clientY },
+        isTouchDevice,
+      ).then(async (action) => {
+        if (!action) return;
+        let changed = false;
+        switch (action) {
+          case "new-file":
+            changed = await handleNewFile(activeCwd, "");
+            break;
+          case "new-folder":
+            changed = await handleNewFolder(activeCwd, "");
+            break;
+          case "upload-file":
+            triggerFileUpload(activeCwd, "", onRefreshTree);
+            return;
+          case "rename":
+            changed = await handleRenameEntry(activeCwd, ".");
+            break;
+          case "delete":
+            changed = await handleDeleteEntry(activeCwd, ".");
+            break;
+        }
+        if (changed) onRefreshTree();
+      });
+    },
+    [activeCwd, isTouchDevice, onRefreshTree],
+  );
+
+  const rootLongPress = useLongPress(
+    useCallback(
+      (position: { x: number; y: number }) => {
+        if (!activeCwd) return;
+        const rootEntry: ProjectEntry = {
+          path: ".",
+          kind: "directory" as const,
+        };
+        void showEntryContextMenu(activeCwd, rootEntry, position, isTouchDevice).then(
+          async (action) => {
+            if (!action) return;
+            let changed = false;
+            switch (action) {
+              case "new-file":
+                changed = await handleNewFile(activeCwd, "");
+                break;
+              case "new-folder":
+                changed = await handleNewFolder(activeCwd, "");
+                break;
+              case "upload-file":
+                triggerFileUpload(activeCwd, "", onRefreshTree);
+                return;
+            }
+            if (changed) onRefreshTree();
+          },
+        );
+      },
+      [activeCwd, isTouchDevice, onRefreshTree],
+    ),
+  );
+
   return (
     <>
       <Tooltip>
@@ -746,6 +1102,20 @@ export const FileBrowserPanel = memo(function FileBrowserPanel(props: {
             </div>
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto p-1.5">
+            {/* Root folder row */}
+            {activeCwd && !isSearchActive && (
+              <button
+                type="button"
+                className="group flex w-full items-center gap-1.5 rounded-md py-1.5 pl-3 pr-2 text-left hover:bg-accent/50"
+                onContextMenu={handleRootContextMenu}
+                {...rootLongPress}
+              >
+                <FolderIcon className="size-3.5 shrink-0 text-muted-foreground/75" />
+                <span className="truncate font-mono text-[11px] font-medium text-foreground/80 group-hover:text-foreground/90">
+                  {baseName(activeCwd) || activeCwd}
+                </span>
+              </button>
+            )}
             {isSearchActive ? (
               <>
                 {searchLoading && (
@@ -766,6 +1136,7 @@ export const FileBrowserPanel = memo(function FileBrowserPanel(props: {
                     resolvedTheme={resolvedTheme}
                     isTouchDevice={isTouchDevice}
                     onOpenFile={onOpenFile}
+                    onRefreshTree={onRefreshTree}
                   />
                 )}
                 {searchData?.truncated && (
@@ -801,6 +1172,7 @@ export const FileBrowserPanel = memo(function FileBrowserPanel(props: {
                           expandedDirectories={expandedDirectories}
                           onToggleDirectory={onToggleDirectory}
                           onOpenFile={onOpenFile}
+                          onRefreshTree={onRefreshTree}
                         />
                       ) : (
                         <FileNode
@@ -811,6 +1183,7 @@ export const FileBrowserPanel = memo(function FileBrowserPanel(props: {
                           resolvedTheme={resolvedTheme}
                           isTouchDevice={isTouchDevice}
                           onOpenFile={onOpenFile}
+                          onRefreshTree={onRefreshTree}
                         />
                       ),
                     )}
