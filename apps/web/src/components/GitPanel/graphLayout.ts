@@ -8,9 +8,10 @@ export interface GraphNode {
 }
 
 export interface GraphEdge {
+  id: string;
   fromSha: string;
   toSha: string;
-  pathData: string; // SVG path "d" attribute
+  pathData: string;
   color: string;
 }
 
@@ -37,10 +38,6 @@ export const ROW_HEIGHT = 28;
 export const LANE_WIDTH = 16;
 export const NODE_RADIUS = 4;
 
-function laneColor(column: number): string {
-  return LANE_COLORS[column % LANE_COLORS.length]!;
-}
-
 function laneX(column: number): number {
   return LANE_WIDTH + column * LANE_WIDTH;
 }
@@ -50,44 +47,45 @@ function rowY(row: number): number {
 }
 
 /**
- * Compute graph layout (node positions + edge SVG paths) from a linear
- * list of git log entries ordered newest-first (topological order).
+ * Row-by-row graph layout algorithm.
  *
- * Algorithm based on git's graph.c lane assignment:
- * - Lanes track which SHA they are "waiting for"
- * - A commit claims the leftmost lane that expects it
- * - ALL lanes pointing to a merge target get freed (not just one)
- * - First parent continues the commit's lane (straight down)
- * - Additional parents fork into new lanes to the right
- * - Edges use vertical-then-curve for merge-back, curve-then-vertical for fork
+ * Instead of drawing long edges between distant commits, this algorithm
+ * processes each row and draws:
+ * 1. Continuation lines for active lanes passing through the row
+ * 2. Fork curves when a merge commit creates new branch lanes
+ * 3. Merge-back curves when multiple lanes converge to a single commit
+ *
+ * This produces the "railroad track" visual where branch lines are
+ * continuous and clearly show where they diverge and converge.
  */
 export function computeGraphLayout(entries: readonly GitLogEntry[]): GraphLayout {
   const nodes: GraphNode[] = [];
   const edges: GraphEdge[] = [];
+  let edgeId = 0;
 
-  // Map SHA -> row index for lookup during edge generation
+  // lanes[i] = SHA this lane is waiting for, or null if free
+  // laneColors[i] = color assigned to this lane
+  let lanes: (string | null)[] = [];
+  let laneColors: (string | null)[] = [];
+  let nextColorIdx = 0;
+
   const shaToRow = new Map<string, number>();
   for (let i = 0; i < entries.length; i++) {
     shaToRow.set(entries[i]!.sha, i);
   }
 
-  // Active lanes: each slot holds the SHA that lane is waiting for, or null if free
-  const lanes: (string | null)[] = [];
+  // Track which row each SHA was placed in and which column it occupied,
+  // so we can draw direct edges to already-processed parents.
+  const shaToNode = new Map<string, { row: number; column: number }>();
 
-  // Track which column each commit is assigned to
-  const shaToColumn = new Map<string, number>();
-
-  // Track the color assigned to each lane column
-  const laneColorMap = new Map<number, string>();
-  let nextColorIdx = 0;
-
-  function assignLaneColor(col: number): string {
-    const existing = laneColorMap.get(col);
-    if (existing) return existing;
-    const color = LANE_COLORS[nextColorIdx % LANE_COLORS.length]!;
+  function assignColor(): string {
+    const c = LANE_COLORS[nextColorIdx % LANE_COLORS.length]!;
     nextColorIdx++;
-    laneColorMap.set(col, color);
-    return color;
+    return c;
+  }
+
+  function pushEdge(edge: Omit<GraphEdge, "id">): void {
+    edges.push({ ...edge, id: `e${edgeId++}` });
   }
 
   let maxColumns = 0;
@@ -96,150 +94,235 @@ export function computeGraphLayout(entries: readonly GitLogEntry[]): GraphLayout
     const entry = entries[row]!;
     const { sha, parents } = entry;
 
-    // ── STEP 1: Find ALL lanes expecting this commit ──
+    // ── Find all lanes expecting this commit ──
     const matchingLanes: number[] = [];
     for (let i = 0; i < lanes.length; i++) {
-      if (lanes[i] === sha) {
-        matchingLanes.push(i);
-      }
+      if (lanes[i] === sha) matchingLanes.push(i);
     }
 
-    // Commit occupies the leftmost matching lane (keeps graph compact)
+    // Commit takes the leftmost matching lane, or a new one
     let col: number;
     if (matchingLanes.length > 0) {
-      col = matchingLanes[0]!; // already leftmost since we scan left-to-right
+      col = matchingLanes[0]!;
     } else {
-      // No lane expects this commit — it's a new branch head
       col = lanes.indexOf(null);
       if (col === -1) {
         col = lanes.length;
         lanes.push(null);
+        laneColors.push(null);
       }
+      if (!laneColors[col]) laneColors[col] = assignColor();
     }
 
-    shaToColumn.set(sha, col);
-    const color = assignLaneColor(col);
-    nodes.push({ sha, column: col, row, color });
+    const commitColor = laneColors[col]!;
+    nodes.push({ sha, column: col, row, color: commitColor });
+    shaToNode.set(sha, { row, column: col });
 
-    if (maxColumns < lanes.length) maxColumns = lanes.length;
-
-    // ── STEP 2: Free ALL matching lanes ──
-    // Every lane pointing to this SHA is now resolved.
+    // ── Draw merge-back edges for extra matching lanes ──
+    // These are branches that were converging to this commit.
+    // Draw a curve from their lane to this commit's lane.
     for (const laneIdx of matchingLanes) {
-      lanes[laneIdx] = null;
+      if (laneIdx === col) continue;
+      // Merge-back: curve from laneIdx into col at this row
+      const fromX = laneX(laneIdx);
+      const toX = laneX(col);
+      const prevY = rowY(row - 1);
+      const curY = rowY(row);
+      const midY = (prevY + curY) / 2;
+      const edgeColor = laneColors[laneIdx] ?? commitColor;
+      pushEdge({
+        fromSha: sha,
+        toSha: sha,
+        pathData: `M ${fromX} ${prevY} C ${fromX} ${midY}, ${toX} ${midY}, ${toX} ${curY}`,
+        color: edgeColor,
+      });
     }
 
-    // ── STEP 3: Assign parents to lanes ──
+    // ── Build the next row's lane state ──
+    // Save the pre-mutation state for drawing continuation lines
+    const prevLanes = lanes.slice();
+    const prevColors = laneColors.slice();
+
+    // Free all matching lanes
+    for (const idx of matchingLanes) {
+      lanes[idx] = null;
+      // Don't clear color for col itself
+      if (idx !== col) laneColors[idx] = null;
+    }
+
+    // First parent continues this lane (unless already processed)
     if (parents.length >= 1) {
-      const firstParent = parents[0]!;
-      // First parent continues THIS lane (straight down)
-      lanes[col] = firstParent;
-
-      // Additional parents: each gets a lane
-      for (let p = 1; p < parents.length; p++) {
-        const parentSha = parents[p]!;
-
-        // Check if another lane already expects this parent
-        let alreadyTracked = false;
-        for (let i = 0; i < lanes.length; i++) {
-          if (lanes[i] === parentSha) {
-            alreadyTracked = true;
-            break;
-          }
-        }
-        if (alreadyTracked) continue;
-
-        // Find a free lane, preferring slots to the RIGHT of current column
-        // to create the visual fork effect
-        let freeLane = -1;
-        for (let i = col + 1; i < lanes.length; i++) {
-          if (lanes[i] === null) {
-            freeLane = i;
-            break;
-          }
-        }
-        if (freeLane === -1) {
-          freeLane = lanes.length;
-          lanes.push(null);
-        }
-        lanes[freeLane] = parentSha;
-        assignLaneColor(freeLane);
+      const firstParentNode = shaToNode.get(parents[0]!);
+      if (firstParentNode != null) {
+        // First parent was already rendered above — draw a direct edge
+        // and leave this lane free.
+        const fromX = laneX(col);
+        const toX = laneX(firstParentNode.column);
+        const fromY = rowY(row);
+        const toY = rowY(firstParentNode.row);
+        const midY = (fromY + toY) / 2;
+        pushEdge({
+          fromSha: sha,
+          toSha: parents[0]!,
+          pathData: `M ${fromX} ${fromY} C ${fromX} ${midY}, ${toX} ${midY}, ${toX} ${toY}`,
+          color: commitColor,
+        });
+      } else {
+        lanes[col] = parents[0]!;
       }
     }
 
-    if (maxColumns < lanes.length) maxColumns = lanes.length;
+    // Additional parents: create new branch lanes (or draw direct edges
+    // to parents that were already processed in earlier rows).
+    const newForkLanes: number[] = [];
+    const directParentEdges: { pRow: number; pCol: number; color: string }[] = [];
+    for (let p = 1; p < parents.length; p++) {
+      const pSha = parents[p]!;
 
-    // ── STEP 4: Compact trailing nulls ──
-    while (lanes.length > 0 && lanes[lanes.length - 1] === null) {
-      lanes.pop();
-    }
-  }
-
-  // ── Edge generation ──
-  // Now that all commits have column assignments, draw edges from
-  // each commit to its parents with proper routing.
-  for (let row = 0; row < entries.length; row++) {
-    const entry = entries[row]!;
-    const fromCol = shaToColumn.get(entry.sha)!;
-    const fromX = laneX(fromCol);
-    const fromY = rowY(row);
-
-    for (let p = 0; p < entry.parents.length; p++) {
-      const parentSha = entry.parents[p]!;
-      const parentRow = shaToRow.get(parentSha);
-
-      if (parentRow === undefined) {
-        // Parent not in visible entries — draw line to bottom edge
-        const toX = p === 0 ? fromX : laneX(fromCol + 1);
-        const toY = rowY(entries.length - 1) + ROW_HEIGHT;
-        const edgeColor = laneColorMap.get(fromCol) ?? laneColor(fromCol);
-        edges.push({
-          fromSha: entry.sha,
-          toSha: parentSha,
-          pathData: `M ${fromX} ${fromY} L ${toX} ${toY}`,
-          color: edgeColor,
-        });
+      // If the parent was already processed (e.g. branch tip appeared before
+      // this merge in --all output), don't create a lane — it would never
+      // resolve. Instead, record a direct edge to the parent's node.
+      const parentNode = shaToNode.get(pSha);
+      if (parentNode != null) {
+        const color = assignColor();
+        directParentEdges.push({ pRow: parentNode.row, pCol: parentNode.column, color });
         continue;
       }
 
-      const toCol = shaToColumn.get(parentSha)!;
-      const toX = laneX(toCol);
-      const toY = rowY(parentRow);
+      // Check if already tracked in an active lane
+      if (lanes.includes(pSha)) continue;
 
-      if (fromCol === toCol) {
-        // Same lane: straight vertical line
-        const edgeColor = laneColorMap.get(fromCol) ?? laneColor(fromCol);
-        edges.push({
-          fromSha: entry.sha,
-          toSha: parentSha,
-          pathData: `M ${fromX} ${fromY} L ${toX} ${toY}`,
-          color: edgeColor,
-        });
-      } else if (p === 0) {
-        // First parent in a different column: MERGE-BACK
-        // The commit was on a side branch, now merging back to the parent's lane.
-        // Visual: vertical drop in fromCol, then curve into toCol
-        const bendY = toY - ROW_HEIGHT * 0.5;
-        const edgeColor = laneColorMap.get(fromCol) ?? laneColor(fromCol);
-        edges.push({
-          fromSha: entry.sha,
-          toSha: parentSha,
-          pathData: `M ${fromX} ${fromY} L ${fromX} ${bendY} C ${fromX} ${toY}, ${toX} ${bendY}, ${toX} ${toY}`,
-          color: edgeColor,
-        });
-      } else {
-        // Non-first parent: FORK/DIVERGENCE
-        // A merge commit pulling in a side branch.
-        // Visual: curve out from fromCol, then vertical drop in toCol
-        const bendY = fromY + ROW_HEIGHT * 0.5;
-        const edgeColor = laneColorMap.get(toCol) ?? laneColor(toCol);
-        edges.push({
-          fromSha: entry.sha,
-          toSha: parentSha,
-          pathData: `M ${fromX} ${fromY} C ${fromX} ${bendY}, ${toX} ${bendY}, ${toX} ${fromY + ROW_HEIGHT} L ${toX} ${toY}`,
-          color: edgeColor,
+      // Find free lane to the right
+      let free = -1;
+      for (let i = col + 1; i < lanes.length; i++) {
+        if (lanes[i] === null) {
+          free = i;
+          break;
+        }
+      }
+      if (free === -1) {
+        free = lanes.length;
+        lanes.push(null);
+        laneColors.push(null);
+      }
+      lanes[free] = pSha;
+      laneColors[free] = assignColor();
+      newForkLanes.push(free);
+    }
+
+    // Draw fork edges: curve from commit's column out to the new lane
+    for (const forkLane of newForkLanes) {
+      const fromX = laneX(col);
+      const toX = laneX(forkLane);
+      const curY = rowY(row);
+      const nextY = rowY(row + 1);
+      const midY = (curY + nextY) / 2;
+      const edgeColor = laneColors[forkLane]!;
+      pushEdge({
+        fromSha: sha,
+        toSha: sha,
+        pathData: `M ${fromX} ${curY} C ${fromX} ${midY}, ${toX} ${midY}, ${toX} ${nextY}`,
+        color: edgeColor,
+      });
+    }
+
+    // Draw direct edges to already-processed parents (upward curves).
+    // These appear when --all causes a branch tip to be listed before the
+    // merge commit that references it.
+    for (const { pRow, pCol, color } of directParentEdges) {
+      const fromX = laneX(col);
+      const toX = laneX(pCol);
+      const fromY = rowY(row);
+      const toY = rowY(pRow);
+      const midY = (fromY + toY) / 2;
+      pushEdge({
+        fromSha: sha,
+        toSha: entries[pRow]!.sha,
+        pathData: `M ${fromX} ${fromY} C ${fromX} ${midY}, ${toX} ${midY}, ${toX} ${toY}`,
+        color,
+      });
+    }
+
+    // ── Draw continuation lines for all active lanes ──
+    // Any lane that was active before this row AND is still active after,
+    // gets a vertical line segment through this row.
+    // But skip the commit's own column (it has a node dot instead) and
+    // skip lanes that just merged in (they got a curve above).
+    const mergedSet = new Set(matchingLanes);
+    const forkedSet = new Set(newForkLanes);
+
+    for (let i = 0; i < Math.max(prevLanes.length, lanes.length); i++) {
+      const wasBefore = prevLanes[i] !== null && prevLanes[i] !== undefined;
+      const isAfter = lanes[i] !== null && lanes[i] !== undefined;
+
+      if (i === col) {
+        // Commit's lane: draw from top of row to the node, and from node to bottom
+        // if the lane continues
+        if (wasBefore && !mergedSet.has(i)) {
+          // Nothing special needed for continuation — handled by prev row
+        }
+        // If lane continues after (has a parent), the next row will draw the top segment
+        continue;
+      }
+
+      if (mergedSet.has(i)) {
+        // This lane merged into the commit — curve was drawn above, don't draw vertical
+        continue;
+      }
+
+      if (forkedSet.has(i)) {
+        // This lane was just forked — curve was drawn above, don't draw vertical
+        continue;
+      }
+
+      // Pass-through lane: draw vertical line through this row
+      if (wasBefore && isAfter) {
+        const x = laneX(i);
+        const topY = rowY(row - 1);
+        const botY = rowY(row);
+        const color = prevColors[i] ?? laneColors[i] ?? LANE_COLORS[0]!;
+        pushEdge({
+          fromSha: `pass-${row}-${i}`,
+          toSha: `pass-${row}-${i}`,
+          pathData: `M ${x} ${topY} L ${x} ${botY}`,
+          color,
         });
       }
+    }
+
+    // Draw the commit's own lane continuation (above and below the node)
+    if (row > 0 && matchingLanes.includes(col)) {
+      // Lane was active before → draw line from previous row to this node
+      const x = laneX(col);
+      const topY = rowY(row - 1);
+      const botY = rowY(row);
+      pushEdge({
+        fromSha: `cont-above-${row}`,
+        toSha: sha,
+        pathData: `M ${x} ${topY} L ${x} ${botY}`,
+        color: commitColor,
+      });
+    }
+
+    if (lanes[col] !== null) {
+      // Lane continues below → draw line from this node to next row
+      const x = laneX(col);
+      const topY = rowY(row);
+      const botY = rowY(row + 1);
+      pushEdge({
+        fromSha: sha,
+        toSha: `cont-below-${row}`,
+        pathData: `M ${x} ${topY} L ${x} ${botY}`,
+        color: commitColor,
+      });
+    }
+
+    if (lanes.length > maxColumns) maxColumns = lanes.length;
+
+    // Trim trailing nulls
+    while (lanes.length > 0 && lanes[lanes.length - 1] === null) {
+      lanes.pop();
+      laneColors.pop();
     }
   }
 

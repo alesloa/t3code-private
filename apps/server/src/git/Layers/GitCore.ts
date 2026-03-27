@@ -2170,6 +2170,7 @@ export const makeGitCore = (options?: { executeOverride?: GitCoreShape["execute"
       const skip = input.skip ?? 0;
       const args: string[] = [
         "log",
+        "--topo-order",
         `--format=%H%x00%h%x00%an%x00%ae%x00%aI%x00%s%x00%P%x00%D`,
         `--max-count=${maxCount}`,
         `--skip=${skip}`,

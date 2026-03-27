@@ -130,7 +130,7 @@ export default memo(function GraphTab({
             >
               {layout.edges.map((edge) => (
                 <path
-                  key={`${edge.fromSha}-${edge.toSha}`}
+                  key={edge.id}
                   d={edge.pathData}
                   fill="none"
                   stroke={edge.color}
