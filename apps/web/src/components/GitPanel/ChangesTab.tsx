@@ -1,6 +1,8 @@
 import { type ThreadId } from "@t3tools/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  ArrowDownIcon,
+  ArrowUpIcon,
   CheckIcon,
   CloudUploadIcon,
   FileIcon,
@@ -30,6 +32,7 @@ import { Textarea } from "~/components/ui/textarea";
 import { useGitPanelStore } from "~/gitPanelStore";
 import {
   gitGenerateCommitMessageMutationOptions,
+  gitPullMutationOptions,
   gitRunStackedActionMutationOptions,
   gitStageFilesMutationOptions,
   gitStashCreateMutationOptions,
@@ -144,13 +147,21 @@ export default memo(function ChangesTab({
     gitRunStackedActionMutationOptions({ cwd: gitCwd, queryClient }),
   );
   const stashMutation = useMutation(gitStashCreateMutationOptions({ cwd: gitCwd, queryClient }));
+  const pullMutation = useMutation(gitPullMutationOptions({ cwd: gitCwd, queryClient }));
   const generateMutation = useMutation(gitGenerateCommitMessageMutationOptions({ cwd: gitCwd }));
+
+  // Push-only: use runStackedAction with commit_push — commit step is skipped when tree is clean
+  const pushMutation = useMutation(
+    gitRunStackedActionMutationOptions({ cwd: gitCwd, queryClient }),
+  );
 
   const isMutating =
     stageMutation.isPending ||
     unstageMutation.isPending ||
     commitMutation.isPending ||
-    stashMutation.isPending;
+    stashMutation.isPending ||
+    pushMutation.isPending ||
+    pullMutation.isPending;
 
   const clearSelection = useCallback(() => setSelectedPaths(new Set()), []);
 
@@ -256,6 +267,17 @@ export default memo(function ChangesTab({
     });
   }, [generateMutation, setCommitMessage, threadId]);
 
+  const handlePush = useCallback(() => {
+    pushMutation.mutate({
+      actionId: crypto.randomUUID(),
+      action: "commit_push",
+    });
+  }, [pushMutation]);
+
+  const handlePull = useCallback(() => {
+    pullMutation.mutate();
+  }, [pullMutation]);
+
   const openFileInEditor = useCallback(
     (filePath: string) => {
       if (gitCwd) openFile(threadId, gitCwd, filePath);
@@ -285,6 +307,9 @@ export default memo(function ChangesTab({
   const isEmpty = staged.length === 0 && unstaged.length === 0 && untracked.length === 0;
   const hasStaged = staged.length > 0;
   const hasSelection = selectedPaths.size > 0;
+  const aheadCount = detailedStatus?.aheadCount ?? 0;
+  const behindCount = detailedStatus?.behindCount ?? 0;
+  const hasUpstream = detailedStatus?.hasUpstream ?? false;
 
   // Compute per-section selection state
   const stagedPaths = staged.map((f) => f.path);
@@ -388,9 +413,37 @@ export default memo(function ChangesTab({
       {/* File sections */}
       <div className="flex-1 overflow-auto">
         {isEmpty && (
-          <div className="flex flex-col items-center justify-center gap-2 p-8 text-center text-xs text-muted-foreground">
+          <div className="flex flex-col items-center justify-center gap-3 p-8 text-center text-xs text-muted-foreground">
             <CheckIcon className="size-5" />
             Working tree clean
+            {/* Sync status: push/pull buttons when there are unpushed/unpulled commits */}
+            {(aheadCount > 0 || behindCount > 0) && (
+              <div className="flex items-center gap-2">
+                {aheadCount > 0 && (
+                  <Button variant="outline" size="xs" disabled={isMutating} onClick={handlePush}>
+                    {pushMutation.isPending ? (
+                      <LoaderIcon className="size-3 animate-spin" />
+                    ) : (
+                      <ArrowUpIcon className="size-3" />
+                    )}
+                    Push {aheadCount} commit{aheadCount !== 1 ? "s" : ""}
+                  </Button>
+                )}
+                {behindCount > 0 && (
+                  <Button variant="outline" size="xs" disabled={isMutating} onClick={handlePull}>
+                    {pullMutation.isPending ? (
+                      <LoaderIcon className="size-3 animate-spin" />
+                    ) : (
+                      <ArrowDownIcon className="size-3" />
+                    )}
+                    Pull {behindCount} commit{behindCount !== 1 ? "s" : ""}
+                  </Button>
+                )}
+              </div>
+            )}
+            {hasUpstream && aheadCount === 0 && behindCount === 0 && (
+              <span className="text-[10px]">Up to date with remote</span>
+            )}
           </div>
         )}
 
