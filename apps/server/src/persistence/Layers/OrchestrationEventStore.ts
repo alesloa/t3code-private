@@ -46,7 +46,7 @@ const AppendEventRequestSchema = Schema.Struct({
 const OrchestrationEventPersistedRowSchema = Schema.Struct({
   sequence: NonNegativeInt,
   eventId: EventId,
-  type: OrchestrationEventType,
+  type: Schema.String,
   aggregateKind: OrchestrationAggregateKind,
   aggregateId: Schema.Union([ProjectId, ThreadId]),
   occurredAt: IsoDateTime,
@@ -228,15 +228,23 @@ const makeEventStore = Effect.gen(function* () {
               "OrchestrationEventStore.readFromSequence:decodeRows",
             ),
           ),
-          Effect.flatMap((rows) =>
-            Effect.forEach(rows, (row) =>
+          Effect.flatMap((rows) => {
+            const decoded: OrchestrationEvent[] = [];
+            return Effect.forEach(rows, (row) =>
               decodeEvent(row).pipe(
-                Effect.mapError(
-                  toPersistenceDecodeError("OrchestrationEventStore.readFromSequence:rowToEvent"),
+                Effect.tap((event) =>
+                  Effect.sync(() => {
+                    decoded.push(event);
+                  }),
+                ),
+                Effect.catch(() =>
+                  Effect.logWarning(
+                    `Skipping unknown event type "${row.type}" at sequence ${row.sequence}`,
+                  ),
                 ),
               ),
-            ),
-          ),
+            ).pipe(Effect.map(() => decoded));
+          }),
         ),
       ).pipe(
         Stream.flatMap((events) => {

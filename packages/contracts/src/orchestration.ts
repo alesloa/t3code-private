@@ -585,6 +585,7 @@ export const OrchestrationEventType = Schema.Literals([
   "thread.approval-response-requested",
   "thread.user-input-response-requested",
   "thread.checkpoint-revert-requested",
+  "thread.conversation-edit-requested",
   "thread.reverted",
   "thread.session-stop-requested",
   "thread.session-set",
@@ -716,6 +717,18 @@ export const ThreadCheckpointRevertRequestedPayload = Schema.Struct({
   createdAt: IsoDateTime,
 });
 
+export const ThreadConversationEditRequestedPayload = Schema.Struct({
+  threadId: ThreadId,
+  editMessageId: MessageId,
+  newMessageId: MessageId,
+  newMessageText: Schema.String,
+  newMessageAttachments: Schema.optional(Schema.Array(ChatAttachment)),
+  modelSelection: Schema.optional(ModelSelection),
+  runtimeMode: RuntimeMode,
+  interactionMode: ProviderInteractionMode,
+  createdAt: IsoDateTime,
+});
+
 export const ThreadRevertedPayload = Schema.Struct({
   threadId: ThreadId,
   turnCount: NonNegativeInt,
@@ -843,6 +856,11 @@ export const OrchestrationEvent = Schema.Union([
     ...EventBaseFields,
     type: Schema.Literal("thread.checkpoint-revert-requested"),
     payload: ThreadCheckpointRevertRequestedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("thread.conversation-edit-requested"),
+    payload: ThreadConversationEditRequestedPayload,
   }),
   Schema.Struct({
     ...EventBaseFields,

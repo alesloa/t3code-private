@@ -311,7 +311,14 @@ export class GuideManager implements GuideManagerShape {
     return new Promise<GuideMeta>((resolve) => {
       const child = spawn(
         "claude",
-        ["--dangerously-skip-permissions", "--output-format", "stream-json", "--verbose", "-p", prompt],
+        [
+          "--dangerously-skip-permissions",
+          "--output-format",
+          "stream-json",
+          "--verbose",
+          "-p",
+          prompt,
+        ],
         {
           cwd: projectCwd,
           stdio: ["pipe", "pipe", "pipe"],
