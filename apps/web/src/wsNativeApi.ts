@@ -1,5 +1,6 @@
 import {
   type GitActionProgressEvent,
+  type GuideProgressEvent,
   ORCHESTRATION_WS_CHANNELS,
   ORCHESTRATION_WS_METHODS,
   type ContextMenuItem,
@@ -19,6 +20,7 @@ const welcomeListeners = new Set<(payload: WsWelcomePayload) => void>();
 const serverConfigUpdatedListeners = new Set<(payload: ServerConfigUpdatedPayload) => void>();
 const providersUpdatedListeners = new Set<(payload: ServerProviderUpdatedPayload) => void>();
 const gitActionProgressListeners = new Set<(payload: GitActionProgressEvent) => void>();
+const guideProgressListeners = new Set<(payload: GuideProgressEvent) => void>();
 
 /**
  * Subscribe to the server welcome message. If a welcome was already received
@@ -131,6 +133,16 @@ export function createWsNativeApi(): NativeApi {
       }
     }
   });
+  transport.subscribe(WS_CHANNELS.guideProgress, (message) => {
+    const payload = message.data;
+    for (const listener of guideProgressListeners) {
+      try {
+        listener(payload);
+      } catch {
+        // Swallow listener errors
+      }
+    }
+  });
 
   const api: NativeApi = {
     dialogs: {
@@ -233,6 +245,31 @@ export function createWsNativeApi(): NativeApi {
         }
         return showContextMenuFallback(items, position);
       },
+    },
+    guides: {
+      list: (input) => transport.request(WS_METHODS.guideList, input),
+      generate: (input) => transport.request(WS_METHODS.guideGenerate, input, { timeoutMs: null }),
+      read: (input) => transport.request(WS_METHODS.guideRead, input),
+      delete: (input) => transport.request(WS_METHODS.guideDelete, input),
+      regenerate: (input) =>
+        transport.request(WS_METHODS.guideRegenerate, input, { timeoutMs: null }),
+      onProgress: (callback) => {
+        guideProgressListeners.add(callback);
+        return () => {
+          guideProgressListeners.delete(callback);
+        };
+      },
+    },
+    skills: {
+      list: (input) => transport.request(WS_METHODS.skillsList, input),
+      get: (input) => transport.request(WS_METHODS.skillsGet, input),
+      create: (input) => transport.request(WS_METHODS.skillsCreate, input),
+      update: (input) => transport.request(WS_METHODS.skillsUpdate, input),
+      delete: (input) => transport.request(WS_METHODS.skillsDelete, input),
+      importGithub: (input) =>
+        transport.request(WS_METHODS.skillsImportGithub, input, { timeoutMs: 60_000 }),
+      updateIcon: (input) => transport.request(WS_METHODS.skillsUpdateIcon, input),
+      openFolder: (input) => transport.request(WS_METHODS.skillsOpenFolder, input),
     },
     server: {
       getConfig: () => transport.request(WS_METHODS.serverGetConfig),

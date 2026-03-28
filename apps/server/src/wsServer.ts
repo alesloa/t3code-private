@@ -48,6 +48,7 @@ import { WebSocketServer, type WebSocket } from "ws";
 import { createLogger } from "./logger";
 import { GitManager } from "./git/Services/GitManager.ts";
 import { TerminalManager } from "./terminal/Services/Manager.ts";
+import { GuideManager } from "./guideManager";
 import { Keybindings } from "./keybindings";
 import { ServerSettingsService } from "./serverSettings";
 import { listWorkspaceEntries, searchWorkspaceEntries } from "./workspaceEntries";
@@ -79,6 +80,7 @@ import { expandHomePath } from "./os-jank.ts";
 import { makeServerPushBus } from "./wsServer/pushBus.ts";
 import { makeServerReadiness } from "./wsServer/readiness.ts";
 import { decodeJsonResult, formatSchemaError } from "@t3tools/shared/schemaJson";
+import * as skillFileOps from "./skills/skillFileOps";
 
 /**
  * ServerShape - Service API for server lifecycle control.
@@ -299,6 +301,7 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
     ),
   );
 
+  const guideManager = new GuideManager(serverConfig.guidesDir);
   const providersRef = yield* Ref.make(yield* providerRegistry.getProviders);
 
   const clients = yield* Ref.make(new Set<WebSocket>());
@@ -689,8 +692,8 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
         bootstrapProjectId = ProjectId.makeUnsafe(crypto.randomUUID());
         const bootstrapProjectTitle = path.basename(cwd) || "project";
         bootstrapProjectDefaultModelSelection = {
-          provider: "codex" as const,
-          model: "gpt-5-codex",
+          provider: "claudeAgent" as const,
+          model: "claude-opus-4-6",
         };
         yield* orchestrationEngine.dispatch({
           type: "project.create",
@@ -704,8 +707,8 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
       } else {
         bootstrapProjectId = existingProject.id;
         bootstrapProjectDefaultModelSelection = existingProject.defaultModelSelection ?? {
-          provider: "codex" as const,
-          model: "gpt-5-codex",
+          provider: "claudeAgent" as const,
+          model: "claude-opus-4-6",
         };
       }
 
@@ -1141,6 +1144,80 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
         return yield* terminalManager.close(body);
       }
 
+      case WS_METHODS.skillsList: {
+        const body = stripRequestTag(request.body);
+        return yield* Effect.tryPromise({
+          try: () => skillFileOps.listSkills(body),
+          catch: (cause) =>
+            new RouteRequestError({ message: `Failed to list skills: ${String(cause)}` }),
+        });
+      }
+
+      case WS_METHODS.skillsGet: {
+        const body = stripRequestTag(request.body);
+        return yield* Effect.tryPromise({
+          try: () => skillFileOps.getSkill(body),
+          catch: (cause) =>
+            new RouteRequestError({ message: `Failed to get skill: ${String(cause)}` }),
+        });
+      }
+
+      case WS_METHODS.skillsCreate: {
+        const body = stripRequestTag(request.body);
+        return yield* Effect.tryPromise({
+          try: () => skillFileOps.createSkill(body),
+          catch: (cause) =>
+            new RouteRequestError({ message: `Failed to create skill: ${String(cause)}` }),
+        });
+      }
+
+      case WS_METHODS.skillsUpdate: {
+        const body = stripRequestTag(request.body);
+        return yield* Effect.tryPromise({
+          try: () => skillFileOps.updateSkill(body),
+          catch: (cause) =>
+            new RouteRequestError({ message: `Failed to update skill: ${String(cause)}` }),
+        });
+      }
+
+      case WS_METHODS.skillsDelete: {
+        const body = stripRequestTag(request.body);
+        return yield* Effect.tryPromise({
+          try: () => skillFileOps.deleteSkill(body),
+          catch: (cause) =>
+            new RouteRequestError({ message: `Failed to delete skill: ${String(cause)}` }),
+        });
+      }
+
+      case WS_METHODS.skillsImportGithub: {
+        const body = stripRequestTag(request.body);
+        return yield* Effect.tryPromise({
+          try: () => skillFileOps.importFromGithub(body),
+          catch: (cause) =>
+            new RouteRequestError({
+              message: `Failed to import skill from GitHub: ${String(cause)}`,
+            }),
+        });
+      }
+
+      case WS_METHODS.skillsUpdateIcon: {
+        const body = stripRequestTag(request.body);
+        return yield* Effect.tryPromise({
+          try: () => skillFileOps.updateSkillIcon(body),
+          catch: (cause) =>
+            new RouteRequestError({ message: `Failed to update skill icon: ${String(cause)}` }),
+        });
+      }
+
+      case WS_METHODS.skillsOpenFolder: {
+        const body = stripRequestTag(request.body);
+        return yield* Effect.tryPromise({
+          try: () => skillFileOps.openSkillFolder(body),
+          catch: (cause) =>
+            new RouteRequestError({ message: `Failed to open skill folder: ${String(cause)}` }),
+        });
+      }
+
       case WS_METHODS.serverGetConfig: {
         const keybindingsConfig = yield* keybindingsManager.loadConfigState;
         const settings = yield* serverSettingsManager.getSettings;
@@ -1175,6 +1252,59 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
       case WS_METHODS.serverUpdateSettings: {
         const body = stripRequestTag(request.body);
         return yield* serverSettingsManager.updateSettings(body.patch);
+      }
+
+      // ── Guide methods ──────────────────────────────────────────────
+
+      case WS_METHODS.guideList: {
+        const body = stripRequestTag(request.body);
+        return yield* Effect.tryPromise({
+          try: () => guideManager.list(body),
+          catch: (cause) =>
+            new RouteRequestError({ message: `Failed to list guides: ${String(cause)}` }),
+        });
+      }
+
+      case WS_METHODS.guideGenerate: {
+        const body = stripRequestTag(request.body);
+        return yield* Effect.tryPromise({
+          try: () =>
+            guideManager.generate(body, (event) => {
+              void Effect.runPromise(pushBus.publishAll(WS_CHANNELS.guideProgress, event));
+            }),
+          catch: (cause) =>
+            new RouteRequestError({ message: `Failed to generate guide: ${String(cause)}` }),
+        });
+      }
+
+      case WS_METHODS.guideRead: {
+        const body = stripRequestTag(request.body);
+        return yield* Effect.tryPromise({
+          try: () => guideManager.read(body),
+          catch: (cause) =>
+            new RouteRequestError({ message: `Failed to read guide: ${String(cause)}` }),
+        });
+      }
+
+      case WS_METHODS.guideDelete: {
+        const body = stripRequestTag(request.body);
+        return yield* Effect.tryPromise({
+          try: () => guideManager.remove(body),
+          catch: (cause) =>
+            new RouteRequestError({ message: `Failed to delete guide: ${String(cause)}` }),
+        });
+      }
+
+      case WS_METHODS.guideRegenerate: {
+        const body = stripRequestTag(request.body);
+        return yield* Effect.tryPromise({
+          try: () =>
+            guideManager.regenerate(body, (event) => {
+              void Effect.runPromise(pushBus.publishAll(WS_CHANNELS.guideProgress, event));
+            }),
+          catch: (cause) =>
+            new RouteRequestError({ message: `Failed to regenerate guide: ${String(cause)}` }),
+        });
       }
 
       default: {

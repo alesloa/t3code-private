@@ -89,7 +89,33 @@ import type {
   OrchestrationReadModel,
 } from "./orchestration";
 import { EditorId } from "./editor";
+import type {
+  Skill,
+  SkillCreateInput,
+  SkillDeleteInput,
+  SkillDeleteResult,
+  SkillGetInput,
+  SkillImportGithubInput,
+  SkillListInput,
+  SkillListResult,
+  SkillOpenFolderInput,
+  SkillUpdateIconInput,
+  SkillUpdateInput,
+} from "./skill";
 import { ServerSettings, ServerSettingsPatch } from "./settings";
+import type {
+  GuideDeleteInput,
+  GuideDeleteResult,
+  GuideGenerateInput,
+  GuideGenerateResult,
+  GuideListInput,
+  GuideListResult,
+  GuideProgressEvent,
+  GuideReadInput,
+  GuideReadResult,
+  GuideRegenerateInput,
+  GuideRegenerateResult,
+} from "./guide";
 
 export interface ContextMenuItem<T extends string = string> {
   id: T;
@@ -240,6 +266,24 @@ export interface NativeApi {
     upsertKeybinding: (input: ServerUpsertKeybindingInput) => Promise<ServerUpsertKeybindingResult>;
     getSettings: () => Promise<ServerSettings>;
     updateSettings: (patch: ServerSettingsPatch) => Promise<ServerSettings>;
+  };
+  skills: {
+    list: (input: SkillListInput) => Promise<SkillListResult>;
+    get: (input: SkillGetInput) => Promise<Skill>;
+    create: (input: SkillCreateInput) => Promise<Skill>;
+    update: (input: SkillUpdateInput) => Promise<Skill>;
+    delete: (input: SkillDeleteInput) => Promise<SkillDeleteResult>;
+    importGithub: (input: SkillImportGithubInput) => Promise<Skill>;
+    updateIcon: (input: SkillUpdateIconInput) => Promise<Skill>;
+    openFolder: (input: SkillOpenFolderInput) => Promise<void>;
+  };
+  guides: {
+    list: (input: GuideListInput) => Promise<GuideListResult>;
+    generate: (input: GuideGenerateInput) => Promise<GuideGenerateResult>;
+    read: (input: GuideReadInput) => Promise<GuideReadResult>;
+    delete: (input: GuideDeleteInput) => Promise<GuideDeleteResult>;
+    regenerate: (input: GuideRegenerateInput) => Promise<GuideRegenerateResult>;
+    onProgress: (callback: (event: GuideProgressEvent) => void) => () => void;
   };
   orchestration: {
     getSnapshot: () => Promise<OrchestrationReadModel>;

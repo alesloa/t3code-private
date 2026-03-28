@@ -63,8 +63,26 @@ import {
   ProjectWriteFileInput,
 } from "./project";
 import { OpenInEditorInput } from "./editor";
+import {
+  SkillCreateInput,
+  SkillDeleteInput,
+  SkillGetInput,
+  SkillImportGithubInput,
+  SkillListInput,
+  SkillOpenFolderInput,
+  SkillUpdateIconInput,
+  SkillUpdateInput,
+} from "./skill";
 import { ServerConfigUpdatedPayload, ServerProviderUpdatedPayload } from "./server";
 import { ServerSettingsPatch } from "./settings";
+import {
+  GuideDeleteInput,
+  GuideGenerateInput,
+  GuideListInput,
+  GuideProgressEvent,
+  GuideReadInput,
+  GuideRegenerateInput,
+} from "./guide";
 
 // ── WebSocket RPC Method Names ───────────────────────────────────────
 
@@ -125,6 +143,23 @@ export const WS_METHODS = {
   terminalRestart: "terminal.restart",
   terminalClose: "terminal.close",
 
+  // Skills methods
+  skillsList: "skills.list",
+  skillsGet: "skills.get",
+  skillsCreate: "skills.create",
+  skillsUpdate: "skills.update",
+  skillsDelete: "skills.delete",
+  skillsImportGithub: "skills.importGithub",
+  skillsUpdateIcon: "skills.updateIcon",
+  skillsOpenFolder: "skills.openFolder",
+
+  // Guide methods
+  guideList: "guide.list",
+  guideGenerate: "guide.generate",
+  guideRead: "guide.read",
+  guideDelete: "guide.delete",
+  guideRegenerate: "guide.regenerate",
+
   // Server meta
   serverGetConfig: "server.getConfig",
   serverRefreshProviders: "server.refreshProviders",
@@ -141,6 +176,7 @@ export const WS_CHANNELS = {
   serverWelcome: "server.welcome",
   serverConfigUpdated: "server.configUpdated",
   serverProvidersUpdated: "server.providersUpdated",
+  guideProgress: "guide.progress",
 } as const;
 
 // -- Tagged Union of all request body schemas ─────────────────────────
@@ -219,6 +255,23 @@ const WebSocketRequestBody = Schema.Union([
   tagRequestBody(WS_METHODS.terminalRestart, TerminalRestartInput),
   tagRequestBody(WS_METHODS.terminalClose, TerminalCloseInput),
 
+  // Skills methods
+  tagRequestBody(WS_METHODS.skillsList, SkillListInput),
+  tagRequestBody(WS_METHODS.skillsGet, SkillGetInput),
+  tagRequestBody(WS_METHODS.skillsCreate, SkillCreateInput),
+  tagRequestBody(WS_METHODS.skillsUpdate, SkillUpdateInput),
+  tagRequestBody(WS_METHODS.skillsDelete, SkillDeleteInput),
+  tagRequestBody(WS_METHODS.skillsImportGithub, SkillImportGithubInput),
+  tagRequestBody(WS_METHODS.skillsUpdateIcon, SkillUpdateIconInput),
+  tagRequestBody(WS_METHODS.skillsOpenFolder, SkillOpenFolderInput),
+
+  // Guide methods
+  tagRequestBody(WS_METHODS.guideList, GuideListInput),
+  tagRequestBody(WS_METHODS.guideGenerate, GuideGenerateInput),
+  tagRequestBody(WS_METHODS.guideRead, GuideReadInput),
+  tagRequestBody(WS_METHODS.guideDelete, GuideDeleteInput),
+  tagRequestBody(WS_METHODS.guideRegenerate, GuideRegenerateInput),
+
   // Server meta
   tagRequestBody(WS_METHODS.serverGetConfig, Schema.Struct({})),
   tagRequestBody(WS_METHODS.serverRefreshProviders, Schema.Struct({})),
@@ -262,6 +315,7 @@ export interface WsPushPayloadByChannel {
   readonly [WS_CHANNELS.gitActionProgress]: typeof GitActionProgressEvent.Type;
   readonly [WS_CHANNELS.terminalEvent]: typeof TerminalEvent.Type;
   readonly [ORCHESTRATION_WS_CHANNELS.domainEvent]: OrchestrationEvent;
+  readonly [WS_CHANNELS.guideProgress]: typeof GuideProgressEvent.Type;
 }
 
 export type WsPushChannel = keyof WsPushPayloadByChannel;
@@ -296,6 +350,7 @@ export const WsPushOrchestrationDomainEvent = makeWsPushSchema(
   ORCHESTRATION_WS_CHANNELS.domainEvent,
   OrchestrationEvent,
 );
+export const WsPushGuideProgress = makeWsPushSchema(WS_CHANNELS.guideProgress, GuideProgressEvent);
 
 export const WsPushChannelSchema = Schema.Literals([
   WS_CHANNELS.gitActionProgress,
@@ -303,6 +358,7 @@ export const WsPushChannelSchema = Schema.Literals([
   WS_CHANNELS.serverConfigUpdated,
   WS_CHANNELS.serverProvidersUpdated,
   WS_CHANNELS.terminalEvent,
+  WS_CHANNELS.guideProgress,
   ORCHESTRATION_WS_CHANNELS.domainEvent,
 ]);
 export type WsPushChannelSchema = typeof WsPushChannelSchema.Type;
@@ -313,6 +369,7 @@ export const WsPush = Schema.Union([
   WsPushServerProvidersUpdated,
   WsPushGitActionProgress,
   WsPushTerminalEvent,
+  WsPushGuideProgress,
   WsPushOrchestrationDomainEvent,
 ]);
 export type WsPush = typeof WsPush.Type;

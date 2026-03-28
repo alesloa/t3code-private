@@ -46,9 +46,29 @@ export default defineConfig({
         ],
       },
       workbox: {
+        // Always fetch index.html from network so the browser never loads
+        // a stale shell that references old hashed asset filenames.
+        // Without this, deploying a new build behind Cloudflare Access
+        // causes CORS failures when the SW tries to fetch deleted assets.
         navigateFallback: "index.html",
+        navigateFallbackDenylist: [/^\/api/],
         globIgnores: ["**/mockServiceWorker.js"],
         maximumFileSizeToCacheInBytes: 3 * 1024 * 1024, // 3 MB — main bundle includes CodeMirror + diffs
+        skipWaiting: true,
+        clientsClaim: true,
+        cleanupOutdatedCaches: true,
+        runtimeCaching: [
+          {
+            // Never cache the HTML shell — always go to network
+            urlPattern: ({ request }) => request.mode === "navigate",
+            handler: "NetworkFirst",
+            options: {
+              cacheName: "html-cache",
+              expiration: { maxEntries: 1 },
+              networkTimeoutSeconds: 3,
+            },
+          },
+        ],
       },
     }),
   ],

@@ -1,6 +1,8 @@
 import {
   ArrowLeftIcon,
   ArrowUpDownIcon,
+  BlocksIcon,
+  BookOpenIcon,
   ChevronRightIcon,
   FolderIcon,
   GitPullRequestIcon,
@@ -53,6 +55,8 @@ import { gitRemoveWorktreeMutationOptions, gitStatusQueryOptions } from "../lib/
 import { serverConfigQueryOptions } from "../lib/serverReactQuery";
 import { readNativeApi } from "../nativeApi";
 import { useComposerDraftStore } from "../composerDraftStore";
+import { useGuideStore } from "../guideStore";
+import GuideGenerateDialog from "./GuideGenerateDialog";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { selectThreadTerminalState, useTerminalStateStore } from "../terminalStateStore";
 import { toastManager } from "./ui/toast";
@@ -384,6 +388,8 @@ export default function Sidebar() {
   );
   const navigate = useNavigate();
   const isOnSettings = useLocation({ select: (loc) => loc.pathname === "/settings" });
+  const isOnSkills = useLocation({ select: (loc) => loc.pathname === "/skills" });
+  const isOnGuides = useLocation({ select: (loc) => loc.pathname.startsWith("/guide") });
   const appSettings = useSettings();
   const { updateSettings } = useUpdateSettings();
   const { handleNewThread } = useHandleNewThread();
@@ -982,9 +988,20 @@ export default function Sidebar() {
       const api = readNativeApi();
       if (!api) return;
       const clicked = await api.contextMenu.show(
-        [{ id: "delete", label: "Remove project", destructive: true }],
+        [
+          { id: "generate-guide", label: "Generate Guide" },
+          { id: "delete", label: "Remove project", destructive: true },
+        ],
         position,
       );
+
+      if (clicked === "generate-guide") {
+        const project = projects.find((entry) => entry.id === projectId);
+        if (!project) return;
+        const { useGuideStore } = await import("../guideStore");
+        useGuideStore.getState().openGenerateDialog({ initialProjectCwd: project.cwd });
+        return;
+      }
       if (clicked !== "delete") return;
 
       const project = projects.find((entry) => entry.id === projectId);
@@ -1673,6 +1690,32 @@ export default function Sidebar() {
       )}
 
       <SidebarContent className="gap-0">
+        <SidebarGroup className="px-2 pt-2 pb-0">
+          <SidebarMenu>
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                size="sm"
+                className="gap-2 px-2 py-1.5 text-muted-foreground/70 hover:bg-accent hover:text-foreground"
+                isActive={isOnSkills}
+                onClick={() => void navigate({ to: "/skills" })}
+              >
+                <BlocksIcon className="size-3.5" />
+                <span className="text-xs">Skills</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                size="sm"
+                className="gap-2 px-2 py-1.5 text-muted-foreground/70 hover:bg-accent hover:text-foreground"
+                isActive={isOnGuides}
+                onClick={() => void navigate({ to: "/guides" })}
+              >
+                <BookOpenIcon className="size-3.5" />
+                <span className="text-xs">Guides</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          </SidebarMenu>
+        </SidebarGroup>
         {showArm64IntelBuildWarning && arm64IntelBuildWarningDescription ? (
           <SidebarGroup className="px-2 pt-2 pb-0">
             <Alert variant="warning" className="rounded-2xl border-warning/40 bg-warning/8">
@@ -1868,6 +1911,24 @@ export default function Sidebar() {
           </SidebarMenuItem>
         </SidebarMenu>
       </SidebarFooter>
+      <GuideGenerateDialogWrapper />
     </>
+  );
+}
+
+function GuideGenerateDialogWrapper() {
+  const generateDialog = useGuideStore((s) => s.generateDialog);
+  const closeGenerateDialog = useGuideStore((s) => s.closeGenerateDialog);
+
+  return (
+    <GuideGenerateDialog
+      open={generateDialog.open}
+      onOpenChange={(open) => {
+        if (!open) closeGenerateDialog();
+      }}
+      initialProjectCwd={generateDialog.initialProjectCwd}
+      initialScope={generateDialog.initialScope}
+      initialTargetPath={generateDialog.initialTargetPath}
+    />
   );
 }

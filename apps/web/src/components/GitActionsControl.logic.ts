@@ -160,7 +160,7 @@ export function buildMenuItems(
     hasOpenPr
       ? {
           id: "pr",
-          label: "View PR",
+          label: "Source controlled",
           disabled: !canOpenPr,
           icon: "pr",
           kind: "open_pr",
@@ -229,7 +229,7 @@ export function resolveQuickAction(
   if (!gitStatus.hasUpstream) {
     if (!hasOriginRemote) {
       if (hasOpenPr && !isAhead) {
-        return { label: "View PR", disabled: false, kind: "open_pr" };
+        return { label: "Source controlled", disabled: false, kind: "open_pr" };
       }
       return {
         label: "Push",
@@ -240,7 +240,7 @@ export function resolveQuickAction(
     }
     if (!isAhead) {
       if (hasOpenPr) {
-        return { label: "View PR", disabled: false, kind: "open_pr" };
+        return { label: "Source controlled", disabled: false, kind: "open_pr" };
       }
       return {
         label: "Push",
@@ -290,7 +290,7 @@ export function resolveQuickAction(
   }
 
   if (hasOpenPr && gitStatus.hasUpstream) {
-    return { label: "View PR", disabled: false, kind: "open_pr" };
+    return { label: "Source controlled", disabled: false, kind: "open_pr" };
   }
 
   return {

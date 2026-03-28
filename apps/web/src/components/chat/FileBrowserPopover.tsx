@@ -91,7 +91,8 @@ type ContextMenuAction =
   | "rename"
   | "duplicate"
   | "delete"
-  | "generate-image";
+  | "generate-image"
+  | "learn-about";
 
 function copyToClipboard(value: string, label: string) {
   if (!navigator.clipboard?.writeText) return;
@@ -137,6 +138,7 @@ async function showEntryContextMenu(
       ? [{ id: "open-in-editor" as const, label: "Open in Editor" }]
       : []),
     ...(isRoot ? [] : [{ id: "delete" as const, label: "Delete" }]),
+    { id: "learn-about" as const, label: "Learn About This" },
   ];
 
   const clicked = await api.contextMenu.show<ContextMenuAction>(items, position);
@@ -162,6 +164,15 @@ async function showEntryContextMenu(
     case "copy-name":
       copyToClipboard(baseName(entry.path), "Name");
       return null;
+    case "learn-about": {
+      const { useGuideStore } = await import("../../guideStore");
+      useGuideStore.getState().openGenerateDialog({
+        initialProjectCwd: cwd,
+        initialScope: isDir ? "directory" : "file",
+        initialTargetPath: entry.path === "." ? "" : entry.path,
+      });
+      return null;
+    }
     default:
       // new-file, new-folder, upload-file — return to caller
       return clicked;

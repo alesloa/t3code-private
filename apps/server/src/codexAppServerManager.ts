@@ -19,6 +19,7 @@ import {
   ProviderInteractionMode,
 } from "@t3tools/contracts";
 import { normalizeModelSlug } from "@t3tools/shared/model";
+import { listSkills } from "./skills/skillFileOps";
 import { Effect, ServiceMap } from "effect";
 
 import {
@@ -415,10 +416,25 @@ export function buildCodexInitializeParams() {
   } as const;
 }
 
+async function buildSkillsContentForCodex(): Promise<string | null> {
+  try {
+    const { skills } = await listSkills();
+    if (skills.length === 0) return null;
+    const sections = skills.map(
+      (skill) =>
+        `## Skill: ${skill.name}\n${skill.description ? `${skill.description}\n\n` : ""}${skill.body}`,
+    );
+    return `<skills>\n${sections.join("\n\n")}\n</skills>`;
+  } catch {
+    return null;
+  }
+}
+
 function buildCodexCollaborationMode(input: {
   readonly interactionMode?: "default" | "plan";
   readonly model?: string;
   readonly effort?: string;
+  readonly skillsContent?: string;
 }):
   | {
       mode: "default" | "plan";
@@ -433,15 +449,21 @@ function buildCodexCollaborationMode(input: {
     return undefined;
   }
   const model = normalizeCodexModelSlug(input.model) ?? "gpt-5.3-codex";
+  let developerInstructions =
+    input.interactionMode === "plan"
+      ? CODEX_PLAN_MODE_DEVELOPER_INSTRUCTIONS
+      : CODEX_DEFAULT_MODE_DEVELOPER_INSTRUCTIONS;
+
+  if (input.skillsContent) {
+    developerInstructions += `\n\n${input.skillsContent}`;
+  }
+
   return {
     mode: input.interactionMode,
     settings: {
       model,
       reasoning_effort: input.effort ?? "medium",
-      developer_instructions:
-        input.interactionMode === "plan"
-          ? CODEX_PLAN_MODE_DEVELOPER_INSTRUCTIONS
-          : CODEX_DEFAULT_MODE_DEVELOPER_INSTRUCTIONS,
+      developer_instructions: developerInstructions,
     },
   };
 }
@@ -798,10 +820,12 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     if (input.effort) {
       turnStartParams.effort = input.effort;
     }
+    const skillsContent = await buildSkillsContentForCodex();
     const collaborationMode = buildCodexCollaborationMode({
       ...(input.interactionMode !== undefined ? { interactionMode: input.interactionMode } : {}),
       ...(normalizedModel !== undefined ? { model: normalizedModel } : {}),
       ...(input.effort !== undefined ? { effort: input.effort } : {}),
+      ...(skillsContent ? { skillsContent } : {}),
     });
     if (collaborationMode) {
       if (!turnStartParams.model) {
