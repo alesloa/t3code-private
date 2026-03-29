@@ -47,7 +47,13 @@ import {
 } from "@t3tools/contracts/settings";
 import { isElectron } from "../env";
 import { APP_STAGE_LABEL, APP_VERSION } from "../branding";
-import { isLinuxPlatform, isMacPlatform, newCommandId, newProjectId } from "../lib/utils";
+import {
+  isLinuxPlatform,
+  isMacPlatform,
+  newCommandId,
+  newProjectId,
+  newThreadId,
+} from "../lib/utils";
 import { useStore } from "../store";
 import { shortcutLabelForCommand } from "../keybindings";
 import { derivePendingApprovals, derivePendingUserInputs } from "../session-logic";
@@ -833,6 +839,7 @@ export default function Sidebar() {
       const clicked = await api.contextMenu.show(
         [
           { id: "rename", label: "Rename thread" },
+          { id: "clone", label: "Clone thread" },
           { id: "mark-unread", label: "Mark unread" },
           { id: "copy-path", label: "Copy Path" },
           { id: "copy-thread-id", label: "Copy Thread ID" },
@@ -850,6 +857,29 @@ export default function Sidebar() {
 
       if (clicked === "mark-unread") {
         markThreadUnread(threadId);
+        return;
+      }
+      if (clicked === "clone") {
+        const clonedThreadId = newThreadId();
+        try {
+          await api.orchestration.dispatchCommand({
+            type: "thread.clone",
+            commandId: newCommandId(),
+            sourceThreadId: threadId,
+            threadId: clonedThreadId,
+            createdAt: new Date().toISOString(),
+          });
+          await navigate({
+            to: "/$threadId",
+            params: { threadId: clonedThreadId },
+          });
+        } catch (err) {
+          toastManager.add({
+            type: "error",
+            title: "Failed to clone thread",
+            description: err instanceof Error ? err.message : "Unknown error",
+          });
+        }
         return;
       }
       if (clicked === "copy-path") {
@@ -888,6 +918,7 @@ export default function Sidebar() {
       copyThreadIdToClipboard,
       deleteThread,
       markThreadUnread,
+      navigate,
       projectCwdById,
       threads,
     ],

@@ -444,6 +444,50 @@ const ThreadCheckpointRevertCommand = Schema.Struct({
   createdAt: IsoDateTime,
 });
 
+export const ThreadTurnEditAndRestartCommand = Schema.Struct({
+  type: Schema.Literal("thread.turn.edit-and-restart"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  editMessageId: MessageId,
+  message: Schema.Struct({
+    messageId: MessageId,
+    role: Schema.Literal("user"),
+    text: Schema.String,
+    attachments: Schema.Array(ChatAttachment),
+  }),
+  modelSelection: Schema.optional(ModelSelection),
+  runtimeMode: RuntimeMode.pipe(Schema.withDecodingDefault(() => DEFAULT_RUNTIME_MODE)),
+  interactionMode: ProviderInteractionMode.pipe(
+    Schema.withDecodingDefault(() => DEFAULT_PROVIDER_INTERACTION_MODE),
+  ),
+  createdAt: IsoDateTime,
+});
+
+const ClientThreadTurnEditAndRestartCommand = Schema.Struct({
+  type: Schema.Literal("thread.turn.edit-and-restart"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  editMessageId: MessageId,
+  message: Schema.Struct({
+    messageId: MessageId,
+    role: Schema.Literal("user"),
+    text: Schema.String,
+    attachments: Schema.Array(UploadChatAttachment),
+  }),
+  modelSelection: Schema.optional(ModelSelection),
+  runtimeMode: RuntimeMode,
+  interactionMode: ProviderInteractionMode,
+  createdAt: IsoDateTime,
+});
+
+const ThreadCloneCommand = Schema.Struct({
+  type: Schema.Literal("thread.clone"),
+  commandId: CommandId,
+  sourceThreadId: ThreadId,
+  threadId: ThreadId,
+  createdAt: IsoDateTime,
+});
+
 const ThreadSessionStopCommand = Schema.Struct({
   type: Schema.Literal("thread.session.stop"),
   commandId: CommandId,
@@ -461,10 +505,12 @@ const DispatchableClientOrchestrationCommand = Schema.Union([
   ThreadRuntimeModeSetCommand,
   ThreadInteractionModeSetCommand,
   ThreadTurnStartCommand,
+  ThreadTurnEditAndRestartCommand,
   ThreadTurnInterruptCommand,
   ThreadApprovalRespondCommand,
   ThreadUserInputRespondCommand,
   ThreadCheckpointRevertCommand,
+  ThreadCloneCommand,
   ThreadSessionStopCommand,
 ]);
 export type DispatchableClientOrchestrationCommand =
@@ -480,10 +526,12 @@ export const ClientOrchestrationCommand = Schema.Union([
   ThreadRuntimeModeSetCommand,
   ThreadInteractionModeSetCommand,
   ClientThreadTurnStartCommand,
+  ClientThreadTurnEditAndRestartCommand,
   ThreadTurnInterruptCommand,
   ThreadApprovalRespondCommand,
   ThreadUserInputRespondCommand,
   ThreadCheckpointRevertCommand,
+  ThreadCloneCommand,
   ThreadSessionStopCommand,
 ]);
 export type ClientOrchestrationCommand = typeof ClientOrchestrationCommand.Type;
@@ -575,6 +623,7 @@ export const OrchestrationEventType = Schema.Literals([
   "project.meta-updated",
   "project.deleted",
   "thread.created",
+  "thread.cloned",
   "thread.deleted",
   "thread.meta-updated",
   "thread.runtime-mode-set",
@@ -634,6 +683,23 @@ export const ThreadCreatedPayload = Schema.Struct({
   ),
   branch: Schema.NullOr(TrimmedNonEmptyString),
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
+  createdAt: IsoDateTime,
+  updatedAt: IsoDateTime,
+});
+
+export const ThreadClonedPayload = Schema.Struct({
+  sourceThreadId: ThreadId,
+  threadId: ThreadId,
+  projectId: ProjectId,
+  title: TrimmedNonEmptyString,
+  modelSelection: ModelSelection,
+  runtimeMode: RuntimeMode.pipe(Schema.withDecodingDefault(() => DEFAULT_RUNTIME_MODE)),
+  interactionMode: ProviderInteractionMode.pipe(
+    Schema.withDecodingDefault(() => DEFAULT_PROVIDER_INTERACTION_MODE),
+  ),
+  branch: Schema.NullOr(TrimmedNonEmptyString),
+  worktreePath: Schema.NullOr(TrimmedNonEmptyString),
+  messages: Schema.Array(OrchestrationMessage),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
 });
@@ -806,6 +872,11 @@ export const OrchestrationEvent = Schema.Union([
     ...EventBaseFields,
     type: Schema.Literal("thread.created"),
     payload: ThreadCreatedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("thread.cloned"),
+    payload: ThreadClonedPayload,
   }),
   Schema.Struct({
     ...EventBaseFields,

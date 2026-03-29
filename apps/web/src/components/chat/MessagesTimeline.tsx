@@ -76,6 +76,12 @@ interface MessagesTimelineProps {
   revertTurnCountByUserMessageId: Map<MessageId, number>;
   onRevertUserMessage: (messageId: MessageId) => void;
   isRevertingCheckpoint: boolean;
+  editingMessageId: MessageId | null;
+  editingMessageText: string;
+  onEditUserMessage: (messageId: MessageId) => void;
+  onEditMessageTextChange: (text: string) => void;
+  onEditMessageSubmit: () => void;
+  onEditMessageCancel: () => void;
   onImageExpand: (preview: ExpandedImagePreview) => void;
   markdownCwd: string | undefined;
   resolvedTheme: "light" | "dark";
@@ -100,6 +106,12 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   revertTurnCountByUserMessageId,
   onRevertUserMessage,
   isRevertingCheckpoint,
+  editingMessageId,
+  editingMessageText,
+  onEditUserMessage,
+  onEditMessageTextChange,
+  onEditMessageSubmit,
+  onEditMessageCancel,
   onImageExpand,
   markdownCwd,
   resolvedTheme,
@@ -399,17 +411,64 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                     )}
                   </div>
                 )}
-                {(displayedUserMessage.visibleText.trim().length > 0 ||
-                  terminalContexts.length > 0) && (
-                  <UserMessageBody
-                    text={displayedUserMessage.visibleText}
-                    terminalContexts={terminalContexts}
-                  />
+                {editingMessageId === row.message.id ? (
+                  <div className="space-y-2">
+                    <textarea
+                      className="w-full resize-none rounded-lg border border-border bg-background p-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+                      value={editingMessageText}
+                      onChange={(e) => onEditMessageTextChange(e.target.value)}
+                      rows={Math.max(2, editingMessageText.split("\n").length)}
+                      autoFocus
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                          e.preventDefault();
+                          onEditMessageSubmit();
+                        }
+                        if (e.key === "Escape") {
+                          e.preventDefault();
+                          onEditMessageCancel();
+                        }
+                      }}
+                    />
+                    <div className="flex justify-end gap-1.5">
+                      <Button size="xs" variant="ghost" onClick={onEditMessageCancel}>
+                        Cancel
+                      </Button>
+                      <Button
+                        size="xs"
+                        variant="default"
+                        disabled={!editingMessageText.trim()}
+                        onClick={() => onEditMessageSubmit()}
+                      >
+                        Submit
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  (displayedUserMessage.visibleText.trim().length > 0 ||
+                    terminalContexts.length > 0) && (
+                    <UserMessageBody
+                      text={displayedUserMessage.visibleText}
+                      terminalContexts={terminalContexts}
+                    />
+                  )
                 )}
                 <div className="mt-1.5 flex items-center justify-end gap-2">
                   <div className="flex items-center gap-1.5 opacity-0 transition-opacity duration-200 focus-within:opacity-100 group-hover:opacity-100">
                     {displayedUserMessage.copyText && (
                       <MessageCopyButton text={displayedUserMessage.copyText} />
+                    )}
+                    {editingMessageId !== row.message.id && (
+                      <Button
+                        type="button"
+                        size="xs"
+                        variant="outline"
+                        disabled={isWorking}
+                        onClick={() => onEditUserMessage(row.message.id)}
+                        title="Edit message"
+                      >
+                        <SquarePenIcon className="size-3" />
+                      </Button>
                     )}
                     {canRevertAgentWork && (
                       <Button

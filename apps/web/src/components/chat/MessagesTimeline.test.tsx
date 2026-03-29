@@ -84,6 +84,12 @@ describe("MessagesTimeline", () => {
         revertTurnCountByUserMessageId={new Map()}
         onRevertUserMessage={() => {}}
         isRevertingCheckpoint={false}
+        editingMessageId={null}
+        editingMessageText=""
+        onEditUserMessage={() => {}}
+        onEditMessageTextChange={() => {}}
+        onEditMessageSubmit={() => {}}
+        onEditMessageCancel={() => {}}
         onImageExpand={() => {}}
         markdownCwd={undefined}
         resolvedTheme="light"
@@ -129,6 +135,12 @@ describe("MessagesTimeline", () => {
         revertTurnCountByUserMessageId={new Map()}
         onRevertUserMessage={() => {}}
         isRevertingCheckpoint={false}
+        editingMessageId={null}
+        editingMessageText=""
+        onEditUserMessage={() => {}}
+        onEditMessageTextChange={() => {}}
+        onEditMessageSubmit={() => {}}
+        onEditMessageCancel={() => {}}
         onImageExpand={() => {}}
         markdownCwd={undefined}
         resolvedTheme="light"

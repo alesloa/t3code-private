@@ -684,6 +684,119 @@ const make = Effect.gen(function* () {
       );
   });
 
+  const handleConversationEditRequested = Effect.fnUntraced(function* (
+    event: Extract<OrchestrationEvent, { type: "thread.conversation-edit-requested" }>,
+  ) {
+    const now = new Date().toISOString();
+
+    const readModel = yield* orchestrationEngine.getReadModel();
+    const thread = readModel.threads.find((entry) => entry.id === event.payload.threadId);
+    if (!thread) {
+      return;
+    }
+
+    // Determine the turn count to keep. Find the edit message, then figure out
+    // which checkpoint-based turns come after it (those need to be removed).
+    const editMessageIndex = thread.messages.findIndex((m) => m.id === event.payload.editMessageId);
+    if (editMessageIndex === -1) {
+      return;
+    }
+
+    const editMessage = thread.messages[editMessageIndex]!;
+
+    // A turn is "before edit" if its associated assistant message was created
+    // before the edit point, or if the checkpoint completedAt predates it.
+    const turnsBeforeEdit = thread.checkpoints
+      .filter((cp) => {
+        const assistantMsg = cp.assistantMessageId
+          ? thread.messages.find((m) => m.id === cp.assistantMessageId)
+          : null;
+        if (assistantMsg) {
+          return assistantMsg.createdAt <= editMessage.createdAt;
+        }
+        return cp.completedAt <= editMessage.createdAt;
+      })
+      .toSorted((a, b) => a.checkpointTurnCount - b.checkpointTurnCount);
+
+    const turnCountToKeep =
+      turnsBeforeEdit.length > 0 ? turnsBeforeEdit.at(-1)!.checkpointTurnCount : 0;
+
+    const currentTurnCount = thread.checkpoints.reduce(
+      (max, cp) => Math.max(max, cp.checkpointTurnCount),
+      0,
+    );
+    const turnsToRollback = Math.max(0, currentTurnCount - turnCountToKeep);
+
+    // Roll back provider conversation (no filesystem restore)
+    if (turnsToRollback > 0) {
+      yield* providerService
+        .rollbackConversation({
+          threadId: event.payload.threadId,
+          numTurns: turnsToRollback,
+        })
+        .pipe(Effect.catch(() => Effect.void));
+    }
+
+    // Delete stale checkpoint refs (without restoring files)
+    const staleCheckpointRefs = thread.checkpoints
+      .filter((cp) => cp.checkpointTurnCount > turnCountToKeep)
+      .map((cp) => cp.checkpointRef);
+
+    if (staleCheckpointRefs.length > 0) {
+      const sessionRuntime = yield* resolveSessionRuntimeForThread(event.payload.threadId);
+      if (Option.isSome(sessionRuntime) && isGitWorkspace(sessionRuntime.value.cwd)) {
+        yield* checkpointStore
+          .deleteCheckpointRefs({
+            cwd: sessionRuntime.value.cwd,
+            checkpointRefs: staleCheckpointRefs,
+          })
+          .pipe(Effect.catch(() => Effect.void));
+      }
+    }
+
+    // Dispatch thread.revert.complete to trigger existing projection cleanup
+    yield* orchestrationEngine
+      .dispatch({
+        type: "thread.revert.complete",
+        commandId: serverCommandId("conversation-edit-revert"),
+        threadId: event.payload.threadId,
+        turnCount: turnCountToKeep,
+        createdAt: now,
+      })
+      .pipe(Effect.catch(() => Effect.void));
+
+    // Dispatch thread.turn.start with the new (edited) message
+    yield* orchestrationEngine
+      .dispatch({
+        type: "thread.turn.start",
+        commandId: serverCommandId("conversation-edit-turn-start"),
+        threadId: event.payload.threadId,
+        message: {
+          messageId: event.payload.newMessageId,
+          role: "user" as const,
+          text: event.payload.newMessageText,
+          attachments: event.payload.newMessageAttachments ?? [],
+        },
+        ...(event.payload.modelSelection !== undefined
+          ? { modelSelection: event.payload.modelSelection }
+          : {}),
+        runtimeMode: event.payload.runtimeMode,
+        interactionMode: event.payload.interactionMode,
+        createdAt: now,
+      })
+      .pipe(
+        Effect.catch((error) =>
+          appendRevertFailureActivity({
+            threadId: event.payload.threadId,
+            turnCount: turnCountToKeep,
+            detail: `Failed to start new turn after edit: ${error.message}`,
+            createdAt: now,
+          }),
+        ),
+        Effect.asVoid,
+      );
+  });
+
   const processDomainEvent = Effect.fnUntraced(function* (event: OrchestrationEvent) {
     if (event.type === "thread.turn-start-requested" || event.type === "thread.message-sent") {
       yield* ensurePreTurnBaselineFromDomainTurnStart(event);
@@ -698,6 +811,18 @@ const make = Effect.gen(function* () {
             turnCount: event.payload.turnCount,
             detail: error.message,
             createdAt: new Date().toISOString(),
+          }),
+        ),
+      );
+      return;
+    }
+
+    if (event.type === "thread.conversation-edit-requested") {
+      yield* handleConversationEditRequested(event).pipe(
+        Effect.catch((error) =>
+          Effect.logWarning("conversation edit handler failed", {
+            threadId: event.payload.threadId,
+            error: error.message,
           }),
         ),
       );
@@ -773,6 +898,7 @@ const make = Effect.gen(function* () {
           event.type !== "thread.turn-start-requested" &&
           event.type !== "thread.message-sent" &&
           event.type !== "thread.checkpoint-revert-requested" &&
+          event.type !== "thread.conversation-edit-requested" &&
           event.type !== "thread.turn-diff-completed"
         ) {
           return Effect.void;

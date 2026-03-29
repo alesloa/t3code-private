@@ -168,12 +168,53 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       };
     }
 
-    case "thread.delete": {
-      yield* requireThread({
+    case "thread.clone": {
+      const sourceThread = yield* requireThread({
+        readModel,
+        command,
+        threadId: command.sourceThreadId,
+      });
+      yield* requireThreadAbsent({
         readModel,
         command,
         threadId: command.threadId,
       });
+      return {
+        ...withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "thread.cloned",
+        payload: {
+          sourceThreadId: command.sourceThreadId,
+          threadId: command.threadId,
+          projectId: sourceThread.projectId,
+          title: `Copy of ${sourceThread.title}`,
+          modelSelection: sourceThread.modelSelection,
+          runtimeMode: sourceThread.runtimeMode,
+          interactionMode: sourceThread.interactionMode,
+          branch: sourceThread.branch,
+          worktreePath: sourceThread.worktreePath,
+          messages: sourceThread.messages
+            .filter((m) => !m.streaming)
+            .map((m) =>
+              Object.assign({}, m, {
+                id: crypto.randomUUID() as typeof m.id,
+                turnId: null,
+                streaming: false,
+              }),
+            ),
+          createdAt: command.createdAt,
+          updatedAt: command.createdAt,
+        },
+      };
+    }
+
+    case "thread.delete": {
+      // Allow deleting threads that exist only in the database but not
+      // in the in-memory read model (e.g. imported/externally created threads).
       const occurredAt = nowIso();
       return {
         ...withEventBase({
@@ -429,6 +470,45 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         payload: {
           threadId: command.threadId,
           turnCount: command.turnCount,
+          createdAt: command.createdAt,
+        },
+      };
+    }
+
+    case "thread.turn.edit-and-restart": {
+      const thread = yield* requireThread({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      const editMessage = thread.messages.find((m) => m.id === command.editMessageId);
+      if (!editMessage || editMessage.role !== "user") {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Message '${command.editMessageId}' is not a user message or does not exist.`,
+        });
+      }
+      return {
+        ...withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "thread.conversation-edit-requested",
+        payload: {
+          threadId: command.threadId,
+          editMessageId: command.editMessageId,
+          newMessageId: command.message.messageId,
+          newMessageText: command.message.text,
+          ...(command.message.attachments.length > 0
+            ? { newMessageAttachments: command.message.attachments }
+            : {}),
+          ...(command.modelSelection !== undefined
+            ? { modelSelection: command.modelSelection }
+            : {}),
+          runtimeMode: thread.runtimeMode,
+          interactionMode: thread.interactionMode,
           createdAt: command.createdAt,
         },
       };

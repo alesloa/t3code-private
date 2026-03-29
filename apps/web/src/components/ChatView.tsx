@@ -335,6 +335,8 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const [sendStartedAt, setSendStartedAt] = useState<string | null>(null);
   const [isConnecting, _setIsConnecting] = useState(false);
   const [isRevertingCheckpoint, setIsRevertingCheckpoint] = useState(false);
+  const [editingMessageId, setEditingMessageId] = useState<MessageId | null>(null);
+  const [editingMessageText, setEditingMessageText] = useState("");
   const [respondingRequestIds, setRespondingRequestIds] = useState<ApprovalRequestId[]>([]);
   const [respondingUserInputRequestIds, setRespondingUserInputRequestIds] = useState<
     ApprovalRequestId[]
@@ -3528,6 +3530,67 @@ export default function ChatView({ threadId }: ChatViewProps) {
     void onRevertToTurnCount(targetTurnCount);
   };
 
+  const onEditUserMessage = useCallback(
+    (messageId: MessageId) => {
+      const message = activeThread?.messages.find((m) => m.id === messageId);
+      if (!message || message.role !== "user") return;
+      setEditingMessageId(messageId);
+      setEditingMessageText(message.text);
+    },
+    [activeThread?.messages],
+  );
+
+  const onEditMessageCancel = useCallback(() => {
+    setEditingMessageId(null);
+    setEditingMessageText("");
+  }, []);
+
+  const onEditMessageSubmit = useCallback(() => {
+    const api = readNativeApi();
+    if (!api || !activeThread || !editingMessageId || isWorking) return;
+
+    const trimmedText = editingMessageText.trim();
+    if (!trimmedText) return;
+
+    const createdAt = new Date().toISOString();
+
+    void api.orchestration
+      .dispatchCommand({
+        type: "thread.turn.edit-and-restart",
+        commandId: newCommandId(),
+        threadId: activeThread.id,
+        editMessageId: editingMessageId,
+        message: {
+          messageId: newMessageId(),
+          role: "user",
+          text: trimmedText,
+          attachments: [],
+        },
+        modelSelection: selectedModelSelection,
+        runtimeMode,
+        interactionMode,
+        createdAt,
+      })
+      .catch((err) => {
+        toastManager.add({
+          type: "error",
+          title: "Failed to edit message",
+          description: err instanceof Error ? err.message : "Unknown error",
+        });
+      });
+
+    setEditingMessageId(null);
+    setEditingMessageText("");
+  }, [
+    activeThread,
+    editingMessageId,
+    editingMessageText,
+    isWorking,
+    selectedModelSelection,
+    runtimeMode,
+    interactionMode,
+  ]);
+
   // Empty state: no active thread
   if (!activeThread) {
     return (
@@ -3638,6 +3701,12 @@ export default function ChatView({ threadId }: ChatViewProps) {
                 revertTurnCountByUserMessageId={revertTurnCountByUserMessageId}
                 onRevertUserMessage={onRevertUserMessage}
                 isRevertingCheckpoint={isRevertingCheckpoint}
+                editingMessageId={editingMessageId}
+                editingMessageText={editingMessageText}
+                onEditUserMessage={onEditUserMessage}
+                onEditMessageTextChange={setEditingMessageText}
+                onEditMessageSubmit={onEditMessageSubmit}
+                onEditMessageCancel={onEditMessageCancel}
                 onImageExpand={onExpandTimelineImage}
                 markdownCwd={gitCwd ?? undefined}
                 resolvedTheme={resolvedTheme}

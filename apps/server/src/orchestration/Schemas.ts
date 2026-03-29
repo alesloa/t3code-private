@@ -3,6 +3,7 @@ import {
   ProjectMetaUpdatedPayload as ContractsProjectMetaUpdatedPayloadSchema,
   ProjectDeletedPayload as ContractsProjectDeletedPayloadSchema,
   ThreadCreatedPayload as ContractsThreadCreatedPayloadSchema,
+  ThreadClonedPayload as ContractsThreadClonedPayloadSchema,
   ThreadMetaUpdatedPayload as ContractsThreadMetaUpdatedPayloadSchema,
   ThreadRuntimeModeSetPayload as ContractsThreadRuntimeModeSetPayloadSchema,
   ThreadInteractionModeSetPayload as ContractsThreadInteractionModeSetPayloadSchema,
@@ -17,6 +18,7 @@ import {
   ThreadTurnInterruptRequestedPayload as ContractsThreadTurnInterruptRequestedPayloadSchema,
   ThreadApprovalResponseRequestedPayload as ContractsThreadApprovalResponseRequestedPayloadSchema,
   ThreadCheckpointRevertRequestedPayload as ContractsThreadCheckpointRevertRequestedPayloadSchema,
+  ThreadConversationEditRequestedPayload as ContractsThreadConversationEditRequestedPayloadSchema,
   ThreadSessionStopRequestedPayload as ContractsThreadSessionStopRequestedPayloadSchema,
 } from "@t3tools/contracts";
 
@@ -26,6 +28,7 @@ export const ProjectMetaUpdatedPayload = ContractsProjectMetaUpdatedPayloadSchem
 export const ProjectDeletedPayload = ContractsProjectDeletedPayloadSchema;
 
 export const ThreadCreatedPayload = ContractsThreadCreatedPayloadSchema;
+export const ThreadClonedPayload = ContractsThreadClonedPayloadSchema;
 export const ThreadMetaUpdatedPayload = ContractsThreadMetaUpdatedPayloadSchema;
 export const ThreadRuntimeModeSetPayload = ContractsThreadRuntimeModeSetPayloadSchema;
 export const ThreadInteractionModeSetPayload = ContractsThreadInteractionModeSetPayloadSchema;
@@ -45,4 +48,6 @@ export const ThreadApprovalResponseRequestedPayload =
   ContractsThreadApprovalResponseRequestedPayloadSchema;
 export const ThreadCheckpointRevertRequestedPayload =
   ContractsThreadCheckpointRevertRequestedPayloadSchema;
+export const ThreadConversationEditRequestedPayload =
+  ContractsThreadConversationEditRequestedPayloadSchema;
 export const ThreadSessionStopRequestedPayload = ContractsThreadSessionStopRequestedPayloadSchema;

@@ -494,9 +494,22 @@ const make = Effect.gen(function* () {
       ...(message.attachments !== undefined ? { attachments: message.attachments } : {}),
     }).pipe(Effect.forkScoped);
 
+    // For cloned threads: include prior conversation history as context
+    // so the provider knows about messages from the source thread.
+    const currentMessageIndex = thread.messages.findIndex((m) => m.id === message.id);
+    const priorMessages = thread.messages.slice(0, currentMessageIndex);
+    let messageTextForProvider = message.text;
+    if (priorMessages.length > 0 && !thread.session) {
+      const historyLines = priorMessages
+        .filter((m) => m.role === "user" || m.role === "assistant")
+        .map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.text}`)
+        .join("\n\n");
+      messageTextForProvider = `<conversation_history>\nThis conversation was cloned from a previous thread. Here is the prior conversation context:\n\n${historyLines}\n</conversation_history>\n\n${message.text}`;
+    }
+
     yield* sendTurnForThread({
       threadId: event.payload.threadId,
-      messageText: message.text,
+      messageText: messageTextForProvider,
       ...(message.attachments !== undefined ? { attachments: message.attachments } : {}),
       ...(event.payload.modelSelection !== undefined
         ? { modelSelection: event.payload.modelSelection }

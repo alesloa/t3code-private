@@ -14,6 +14,7 @@ import {
   ProjectDeletedPayload,
   ProjectMetaUpdatedPayload,
   ThreadActivityAppendedPayload,
+  ThreadClonedPayload,
   ThreadCreatedPayload,
   ThreadDeletedPayload,
   ThreadInteractionModeSetPayload,
@@ -262,6 +263,46 @@ export function projectEvent(
             updatedAt: payload.updatedAt,
             deletedAt: null,
             messages: [],
+            activities: [],
+            checkpoints: [],
+            session: null,
+          },
+          event.type,
+          "thread",
+        );
+        const existing = nextBase.threads.find((entry) => entry.id === thread.id);
+        return {
+          ...nextBase,
+          threads: existing
+            ? nextBase.threads.map((entry) => (entry.id === thread.id ? thread : entry))
+            : [...nextBase.threads, thread],
+        };
+      });
+
+    case "thread.cloned":
+      return Effect.gen(function* () {
+        const payload = yield* decodeForEvent(
+          ThreadClonedPayload,
+          event.payload,
+          event.type,
+          "payload",
+        );
+        const thread: OrchestrationThread = yield* decodeForEvent(
+          OrchestrationThread,
+          {
+            id: payload.threadId,
+            projectId: payload.projectId,
+            title: payload.title,
+            modelSelection: payload.modelSelection,
+            runtimeMode: payload.runtimeMode,
+            interactionMode: payload.interactionMode,
+            branch: payload.branch,
+            worktreePath: payload.worktreePath,
+            latestTurn: null,
+            createdAt: payload.createdAt,
+            updatedAt: payload.updatedAt,
+            deletedAt: null,
+            messages: payload.messages,
             activities: [],
             checkpoints: [],
             session: null,
@@ -622,6 +663,9 @@ export function projectEvent(
           };
         }),
       );
+
+    case "thread.conversation-edit-requested":
+      return Effect.succeed(nextBase);
 
     default:
       return Effect.succeed(nextBase);
