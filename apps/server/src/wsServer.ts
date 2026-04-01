@@ -81,6 +81,7 @@ import { makeServerPushBus } from "./wsServer/pushBus.ts";
 import { makeServerReadiness } from "./wsServer/readiness.ts";
 import { decodeJsonResult, formatSchemaError } from "@t3tools/shared/schemaJson";
 import * as skillFileOps from "./skills/skillFileOps";
+import * as cliSessionScanner from "./cliSessionScanner";
 
 /**
  * ServerShape - Service API for server lifecycle control.
@@ -1307,6 +1308,37 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
             }),
           catch: (cause) =>
             new RouteRequestError({ message: `Failed to regenerate guide: ${String(cause)}` }),
+        });
+      }
+
+      case WS_METHODS.guideRename: {
+        const body = stripRequestTag(request.body);
+        return yield* Effect.tryPromise({
+          try: () => guideManager.rename(body),
+          catch: (cause) =>
+            new RouteRequestError({ message: `Failed to rename guide: ${String(cause)}` }),
+        });
+      }
+
+      case WS_METHODS.cliSessionsScan: {
+        const body = stripRequestTag(request.body);
+        return yield* Effect.tryPromise({
+          try: () => cliSessionScanner.scanCliSessions(body),
+          catch: (cause) =>
+            new RouteRequestError({
+              message: `Failed to scan CLI sessions: ${String(cause)}`,
+            }),
+        });
+      }
+
+      case WS_METHODS.cliSessionsReadMessages: {
+        const body = stripRequestTag(request.body);
+        return yield* Effect.tryPromise({
+          try: () => cliSessionScanner.readCliSessionMessages(body),
+          catch: (cause) =>
+            new RouteRequestError({
+              message: `Failed to read CLI session: ${String(cause)}`,
+            }),
         });
       }
 

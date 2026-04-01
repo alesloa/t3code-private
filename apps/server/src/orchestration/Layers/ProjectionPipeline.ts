@@ -449,6 +449,23 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
           });
           return;
 
+        case "thread.imported":
+          yield* projectionThreadRepository.upsert({
+            threadId: event.payload.threadId,
+            projectId: event.payload.projectId,
+            title: event.payload.title,
+            modelSelection: event.payload.modelSelection,
+            runtimeMode: event.payload.runtimeMode,
+            interactionMode: event.payload.interactionMode,
+            branch: null,
+            worktreePath: null,
+            latestTurnId: null,
+            createdAt: event.payload.createdAt,
+            updatedAt: event.payload.updatedAt,
+            deletedAt: null,
+          });
+          return;
+
         case "thread.meta-updated": {
           const existingRow = yield* projectionThreadRepository.getById({
             threadId: event.payload.threadId,
@@ -623,6 +640,25 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
         }
 
         case "thread.cloned": {
+          yield* Effect.forEach(
+            event.payload.messages,
+            (m) =>
+              projectionThreadMessageRepository.upsert({
+                messageId: m.id,
+                threadId: event.payload.threadId,
+                turnId: m.turnId,
+                role: m.role,
+                text: m.text,
+                isStreaming: false,
+                createdAt: m.createdAt,
+                updatedAt: m.updatedAt,
+              }),
+            { concurrency: 1 },
+          ).pipe(Effect.asVoid);
+          return;
+        }
+
+        case "thread.imported": {
           yield* Effect.forEach(
             event.payload.messages,
             (m) =>

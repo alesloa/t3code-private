@@ -115,7 +115,15 @@ import type {
   GuideReadResult,
   GuideRegenerateInput,
   GuideRegenerateResult,
+  GuideRenameInput,
+  GuideRenameResult,
 } from "./guide";
+import type {
+  CliSessionScanInput,
+  CliSessionScanResult,
+  CliSessionReadMessagesInput,
+  CliSessionReadMessagesResult,
+} from "./cliSessions";
 
 export interface ContextMenuItem<T extends string = string> {
   id: T;
@@ -283,7 +291,12 @@ export interface NativeApi {
     read: (input: GuideReadInput) => Promise<GuideReadResult>;
     delete: (input: GuideDeleteInput) => Promise<GuideDeleteResult>;
     regenerate: (input: GuideRegenerateInput) => Promise<GuideRegenerateResult>;
+    rename: (input: GuideRenameInput) => Promise<GuideRenameResult>;
     onProgress: (callback: (event: GuideProgressEvent) => void) => () => void;
+  };
+  cliSessions: {
+    scan: (input: CliSessionScanInput) => Promise<CliSessionScanResult>;
+    readMessages: (input: CliSessionReadMessagesInput) => Promise<CliSessionReadMessagesResult>;
   };
   orchestration: {
     getSnapshot: () => Promise<OrchestrationReadModel>;

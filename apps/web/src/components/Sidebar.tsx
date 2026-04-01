@@ -98,6 +98,7 @@ import {
   SidebarTrigger,
   useSidebar,
 } from "./ui/sidebar";
+import { CliSessionsSidebar } from "./CliSessionsSidebar";
 import { useThreadSelectionStore } from "../threadSelectionStore";
 import { formatWorktreePathForDisplay, getOrphanedWorktreePathForThread } from "../worktreeCleanup";
 import { isNonEmpty as isNonEmptyString } from "effect/String";
@@ -836,10 +837,15 @@ export default function Sidebar() {
       if (!thread) return;
       const threadWorkspacePath =
         thread.worktreePath ?? projectCwdById.get(thread.projectId) ?? null;
+      const forkOption =
+        thread.modelSelection.provider === "codex"
+          ? { id: "fork-claude" as const, label: "Fork to Claude" }
+          : { id: "fork-codex" as const, label: "Fork to Codex" };
       const clicked = await api.contextMenu.show(
         [
           { id: "rename", label: "Rename thread" },
           { id: "clone", label: "Clone thread" },
+          forkOption,
           { id: "mark-unread", label: "Mark unread" },
           { id: "copy-path", label: "Copy Path" },
           { id: "copy-thread-id", label: "Copy Thread ID" },
@@ -877,6 +883,41 @@ export default function Sidebar() {
           toastManager.add({
             type: "error",
             title: "Failed to clone thread",
+            description: err instanceof Error ? err.message : "Unknown error",
+          });
+        }
+        return;
+      }
+      if (clicked === "fork-codex" || clicked === "fork-claude") {
+        const forkedThreadId = newThreadId();
+        const provider = clicked === "fork-codex" ? "codex" : "claudeAgent";
+        try {
+          const messages = thread.messages
+            .filter((m) => !m.streaming && (m.role === "user" || m.role === "assistant"))
+            .map((m) => ({ role: m.role as "user" | "assistant", text: m.text }));
+          await api.orchestration.dispatchCommand({
+            type: "thread.import",
+            commandId: newCommandId(),
+            threadId: forkedThreadId,
+            projectId: thread.projectId,
+            title: `Fork: ${thread.title}`,
+            modelSelection:
+              provider === "codex"
+                ? { provider: "codex", model: DEFAULT_MODEL_BY_PROVIDER.codex }
+                : { provider: "claudeAgent", model: DEFAULT_MODEL_BY_PROVIDER.claudeAgent },
+            runtimeMode: "full-access",
+            interactionMode: "default",
+            messages,
+            createdAt: new Date().toISOString(),
+          });
+          await navigate({
+            to: "/$threadId",
+            params: { threadId: forkedThreadId },
+          });
+        } catch (err) {
+          toastManager.add({
+            type: "error",
+            title: "Failed to fork thread",
             description: err instanceof Error ? err.message : "Unknown error",
           });
         }
@@ -1020,12 +1061,19 @@ export default function Sidebar() {
       if (!api) return;
       const clicked = await api.contextMenu.show(
         [
+          { id: "copy-path", label: "Copy Path" },
           { id: "generate-guide", label: "Generate Guide" },
           { id: "delete", label: "Remove project", destructive: true },
         ],
         position,
       );
 
+      if (clicked === "copy-path") {
+        const project = projects.find((entry) => entry.id === projectId);
+        if (!project) return;
+        copyPathToClipboard(project.cwd, { path: project.cwd });
+        return;
+      }
       if (clicked === "generate-guide") {
         const project = projects.find((entry) => entry.id === projectId);
         if (!project) return;
@@ -1075,6 +1123,7 @@ export default function Sidebar() {
     [
       clearComposerDraftForThread,
       clearProjectDraftThreadId,
+      copyPathToClipboard,
       getDraftThreadByProjectId,
       projects,
       threads,
@@ -1345,6 +1394,7 @@ export default function Sidebar() {
           <SidebarMenuButton
             ref={isManualProjectSorting ? dragHandleProps?.setActivatorNodeRef : undefined}
             size="sm"
+            title={project.cwd}
             className={`gap-2 px-2 py-1.5 text-left hover:bg-accent group-hover/project-header:bg-accent group-hover/project-header:text-sidebar-accent-foreground ${
               isManualProjectSorting ? "cursor-grab active:cursor-grabbing" : "cursor-pointer"
             }`}
@@ -1459,6 +1509,7 @@ export default function Sidebar() {
               </SidebarMenuSubItem>
             )}
           </SidebarMenuSub>
+          <CliSessionsSidebar projectCwd={project.cwd} projectId={project.id} />
         </CollapsibleContent>
       </Collapsible>
     );

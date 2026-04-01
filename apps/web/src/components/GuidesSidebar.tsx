@@ -10,12 +10,12 @@ import {
   XCircleIcon,
   ZapIcon,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { useGuideStore } from "../guideStore";
 import { useStore } from "../store";
 import { readNativeApi } from "../nativeApi";
-import type { GuideMeta, GuideScope } from "@t3tools/contracts";
+import type { GuideId, GuideMeta, GuideScope } from "@t3tools/contracts";
 import { toastManager } from "./ui/toast";
 import { Collapsible, CollapsibleContent } from "./ui/collapsible";
 import {
@@ -122,6 +122,9 @@ export default function GuidesSidebar({ onRequestNewGuide }: GuidesSidebarProps)
   const updateProgress = useGuideStore((s) => s.updateProgress);
   const [expandedCwds, setExpandedCwds] = useState<Set<string>>(() => new Set());
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [renamingGuideId, setRenamingGuideId] = useState<string | null>(null);
+  const [renameText, setRenameText] = useState("");
+  const renameInputRef = useRef<HTMLInputElement>(null);
 
   // ── Fetch guides on mount ────────────────────────────────────────
   const fetchGuides = useCallback(async () => {
@@ -227,6 +230,47 @@ export default function GuidesSidebar({ onRequestNewGuide }: GuidesSidebarProps)
     });
   }, [groupedProjects]);
 
+  // ── Rename handlers ────────────────────────────────────────────
+  const startRename = useCallback((guide: GuideMeta) => {
+    setRenamingGuideId(guide.id);
+    setRenameText(guide.title);
+    // Focus the input after React renders it
+    requestAnimationFrame(() => {
+      renameInputRef.current?.focus();
+      renameInputRef.current?.select();
+    });
+  }, []);
+
+  const commitRename = useCallback(async () => {
+    if (!renamingGuideId) return;
+    const trimmed = renameText.trim();
+    if (trimmed.length === 0) {
+      setRenamingGuideId(null);
+      return;
+    }
+    const api = readNativeApi();
+    if (!api) return;
+    try {
+      const result = await api.guides.rename({
+        guideId: renamingGuideId as GuideId,
+        title: trimmed,
+      });
+      useGuideStore.getState().upsertGuide(result.guide);
+    } catch (error) {
+      toastManager.add({
+        type: "error",
+        title: "Failed to rename guide",
+        description: error instanceof Error ? error.message : "Unknown error",
+      });
+    } finally {
+      setRenamingGuideId(null);
+    }
+  }, [renamingGuideId, renameText]);
+
+  const cancelRename = useCallback(() => {
+    setRenamingGuideId(null);
+  }, []);
+
   // ── Context menu ─────────────────────────────────────────────────
   const handleGuideContextMenu = useCallback(
     async (guide: GuideMeta, position: { x: number; y: number }) => {
@@ -235,6 +279,7 @@ export default function GuidesSidebar({ onRequestNewGuide }: GuidesSidebarProps)
       const clicked = await api.contextMenu.show(
         [
           { id: "view" as const, label: "View guide" },
+          { id: "rename" as const, label: "Rename" },
           { id: "regenerate" as const, label: "Regenerate" },
           { id: "delete" as const, label: "Delete", destructive: true },
         ],
@@ -242,6 +287,8 @@ export default function GuidesSidebar({ onRequestNewGuide }: GuidesSidebarProps)
       );
       if (clicked === "view") {
         void navigate({ to: "/guide/$guideId", params: { guideId: guide.id } });
+      } else if (clicked === "rename") {
+        startRename(guide);
       } else if (clicked === "regenerate") {
         try {
           await api.guides.regenerate({ guideId: guide.id });
@@ -267,7 +314,7 @@ export default function GuidesSidebar({ onRequestNewGuide }: GuidesSidebarProps)
         }
       }
     },
-    [navigate],
+    [navigate, startRename],
   );
 
   // ── Render ───────────────────────────────────────────────────────
@@ -378,6 +425,7 @@ export default function GuidesSidebar({ onRequestNewGuide }: GuidesSidebarProps)
                           guide.status === "queued" ||
                           !!generation;
                         const isFailed = guide.status === "failed";
+                        const isRenaming = renamingGuideId === guide.id;
 
                         return (
                           <SidebarMenuSubItem key={guide.id} className="w-full">
@@ -385,12 +433,14 @@ export default function GuidesSidebar({ onRequestNewGuide }: GuidesSidebarProps)
                               render={<div role="button" tabIndex={0} />}
                               size="sm"
                               onClick={() => {
+                                if (isRenaming) return;
                                 void navigate({
                                   to: "/guide/$guideId",
                                   params: { guideId: guide.id },
                                 });
                               }}
                               onKeyDown={(event) => {
+                                if (isRenaming) return;
                                 if (event.key !== "Enter" && event.key !== " ") return;
                                 event.preventDefault();
                                 void navigate({
@@ -399,6 +449,7 @@ export default function GuidesSidebar({ onRequestNewGuide }: GuidesSidebarProps)
                                 });
                               }}
                               onContextMenu={(event) => {
+                                if (isRenaming) return;
                                 event.preventDefault();
                                 void handleGuideContextMenu(guide, {
                                   x: event.clientX,
@@ -411,9 +462,30 @@ export default function GuidesSidebar({ onRequestNewGuide }: GuidesSidebarProps)
                                 {guide.depth === "quick" && (
                                   <ZapIcon className="size-2.5 shrink-0 text-amber-500/70" />
                                 )}
-                                <span className="min-w-0 flex-1 truncate text-xs">
-                                  {guide.title}
-                                </span>
+                                {isRenaming ? (
+                                  <input
+                                    ref={renameInputRef}
+                                    className="min-w-0 flex-1 rounded border border-ring bg-background px-1 py-0 text-xs text-foreground outline-none"
+                                    value={renameText}
+                                    onChange={(e) => setRenameText(e.target.value)}
+                                    onKeyDown={(e) => {
+                                      if (e.key === "Enter") {
+                                        e.preventDefault();
+                                        void commitRename();
+                                      } else if (e.key === "Escape") {
+                                        e.preventDefault();
+                                        cancelRename();
+                                      }
+                                      e.stopPropagation();
+                                    }}
+                                    onClick={(e) => e.stopPropagation()}
+                                    onBlur={() => void commitRename()}
+                                  />
+                                ) : (
+                                  <span className="min-w-0 flex-1 truncate text-xs">
+                                    {guide.title}
+                                  </span>
+                                )}
                               </div>
                               <div className="ml-auto flex shrink-0 items-center gap-1.5">
                                 {isGenerating && (

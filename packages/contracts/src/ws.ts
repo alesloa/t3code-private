@@ -82,7 +82,9 @@ import {
   GuideProgressEvent,
   GuideReadInput,
   GuideRegenerateInput,
+  GuideRenameInput,
 } from "./guide";
+import { CliSessionScanInput, CliSessionReadMessagesInput } from "./cliSessions";
 
 // ── WebSocket RPC Method Names ───────────────────────────────────────
 
@@ -159,6 +161,11 @@ export const WS_METHODS = {
   guideRead: "guide.read",
   guideDelete: "guide.delete",
   guideRegenerate: "guide.regenerate",
+  guideRename: "guide.rename",
+
+  // CLI Sessions methods
+  cliSessionsScan: "cliSessions.scan",
+  cliSessionsReadMessages: "cliSessions.readMessages",
 
   // Server meta
   serverGetConfig: "server.getConfig",
@@ -271,6 +278,11 @@ const WebSocketRequestBody = Schema.Union([
   tagRequestBody(WS_METHODS.guideRead, GuideReadInput),
   tagRequestBody(WS_METHODS.guideDelete, GuideDeleteInput),
   tagRequestBody(WS_METHODS.guideRegenerate, GuideRegenerateInput),
+  tagRequestBody(WS_METHODS.guideRename, GuideRenameInput),
+
+  // CLI Sessions methods
+  tagRequestBody(WS_METHODS.cliSessionsScan, CliSessionScanInput),
+  tagRequestBody(WS_METHODS.cliSessionsReadMessages, CliSessionReadMessagesInput),
 
   // Server meta
   tagRequestBody(WS_METHODS.serverGetConfig, Schema.Struct({})),

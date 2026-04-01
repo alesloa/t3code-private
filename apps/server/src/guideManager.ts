@@ -26,6 +26,8 @@ import type {
   GuideDeleteResult,
   GuideRegenerateInput,
   GuideRegenerateResult,
+  GuideRenameInput,
+  GuideRenameResult,
   GuideGenerateResult,
   GuideProgressEvent,
 } from "@t3tools/contracts";
@@ -48,6 +50,7 @@ export interface GuideManagerShape {
     input: GuideRegenerateInput,
     onProgress: GuideProgressCallback,
   ) => Promise<GuideRegenerateResult>;
+  readonly rename: (input: GuideRenameInput) => Promise<GuideRenameResult>;
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────
@@ -270,6 +273,19 @@ export class GuideManager implements GuideManagerShape {
       onProgress,
     );
     return { guide: finalMeta };
+  }
+
+  // ── rename ─────────────────────────────────────────────────────
+
+  async rename(input: GuideRenameInput): Promise<GuideRenameResult> {
+    const meta = await readMeta(this.guidesDir, input.guideId);
+    const updated: GuideMeta = {
+      ...meta,
+      title: input.title,
+      updatedAt: nowIso(),
+    };
+    await writeMeta(this.guidesDir, input.guideId, updated);
+    return { guide: updated };
   }
 
   // ── Internal: run generation via claude CLI ──────────────────────

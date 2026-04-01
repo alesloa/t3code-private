@@ -91,6 +91,17 @@ export const GuideRegenerateResult = Schema.Struct({
 });
 export type GuideRegenerateResult = typeof GuideRegenerateResult.Type;
 
+export const GuideRenameInput = Schema.Struct({
+  guideId: GuideId,
+  title: TrimmedNonEmptyString,
+});
+export type GuideRenameInput = typeof GuideRenameInput.Type;
+
+export const GuideRenameResult = Schema.Struct({
+  guide: GuideMeta,
+});
+export type GuideRenameResult = typeof GuideRenameResult.Type;
+
 // ── Push Event for generation progress ───────────────────────────────
 
 export const GuideProgressEvent = Schema.Struct({

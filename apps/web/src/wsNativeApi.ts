@@ -253,12 +253,17 @@ export function createWsNativeApi(): NativeApi {
       delete: (input) => transport.request(WS_METHODS.guideDelete, input),
       regenerate: (input) =>
         transport.request(WS_METHODS.guideRegenerate, input, { timeoutMs: null }),
+      rename: (input) => transport.request(WS_METHODS.guideRename, input),
       onProgress: (callback) => {
         guideProgressListeners.add(callback);
         return () => {
           guideProgressListeners.delete(callback);
         };
       },
+    },
+    cliSessions: {
+      scan: (input) => transport.request(WS_METHODS.cliSessionsScan, input),
+      readMessages: (input) => transport.request(WS_METHODS.cliSessionsReadMessages, input),
     },
     skills: {
       list: (input) => transport.request(WS_METHODS.skillsList, input),

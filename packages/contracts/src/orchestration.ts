@@ -488,6 +488,24 @@ const ThreadCloneCommand = Schema.Struct({
   createdAt: IsoDateTime,
 });
 
+const ThreadImportCommand = Schema.Struct({
+  type: Schema.Literal("thread.import"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  projectId: ProjectId,
+  title: Schema.String,
+  modelSelection: ModelSelection,
+  runtimeMode: RuntimeMode,
+  interactionMode: ProviderInteractionMode,
+  messages: Schema.Array(
+    Schema.Struct({
+      role: OrchestrationMessageRole,
+      text: Schema.String,
+    }),
+  ),
+  createdAt: IsoDateTime,
+});
+
 const ThreadSessionStopCommand = Schema.Struct({
   type: Schema.Literal("thread.session.stop"),
   commandId: CommandId,
@@ -511,6 +529,7 @@ const DispatchableClientOrchestrationCommand = Schema.Union([
   ThreadUserInputRespondCommand,
   ThreadCheckpointRevertCommand,
   ThreadCloneCommand,
+  ThreadImportCommand,
   ThreadSessionStopCommand,
 ]);
 export type DispatchableClientOrchestrationCommand =
@@ -532,6 +551,7 @@ export const ClientOrchestrationCommand = Schema.Union([
   ThreadUserInputRespondCommand,
   ThreadCheckpointRevertCommand,
   ThreadCloneCommand,
+  ThreadImportCommand,
   ThreadSessionStopCommand,
 ]);
 export type ClientOrchestrationCommand = typeof ClientOrchestrationCommand.Type;
@@ -624,6 +644,7 @@ export const OrchestrationEventType = Schema.Literals([
   "project.deleted",
   "thread.created",
   "thread.cloned",
+  "thread.imported",
   "thread.deleted",
   "thread.meta-updated",
   "thread.runtime-mode-set",
@@ -699,6 +720,20 @@ export const ThreadClonedPayload = Schema.Struct({
   ),
   branch: Schema.NullOr(TrimmedNonEmptyString),
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
+  messages: Schema.Array(OrchestrationMessage),
+  createdAt: IsoDateTime,
+  updatedAt: IsoDateTime,
+});
+
+export const ThreadImportedPayload = Schema.Struct({
+  threadId: ThreadId,
+  projectId: ProjectId,
+  title: TrimmedNonEmptyString,
+  modelSelection: ModelSelection,
+  runtimeMode: RuntimeMode.pipe(Schema.withDecodingDefault(() => DEFAULT_RUNTIME_MODE)),
+  interactionMode: ProviderInteractionMode.pipe(
+    Schema.withDecodingDefault(() => DEFAULT_PROVIDER_INTERACTION_MODE),
+  ),
   messages: Schema.Array(OrchestrationMessage),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
@@ -877,6 +912,11 @@ export const OrchestrationEvent = Schema.Union([
     ...EventBaseFields,
     type: Schema.Literal("thread.cloned"),
     payload: ThreadClonedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("thread.imported"),
+    payload: ThreadImportedPayload,
   }),
   Schema.Struct({
     ...EventBaseFields,

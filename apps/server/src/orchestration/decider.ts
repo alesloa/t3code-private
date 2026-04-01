@@ -1,4 +1,5 @@
 import type {
+  MessageId,
   OrchestrationCommand,
   OrchestrationEvent,
   OrchestrationReadModel,
@@ -206,6 +207,44 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
                 streaming: false,
               }),
             ),
+          createdAt: command.createdAt,
+          updatedAt: command.createdAt,
+        },
+      };
+    }
+
+    case "thread.import": {
+      yield* requireProject({ readModel, command, projectId: command.projectId });
+      yield* requireThreadAbsent({ readModel, command, threadId: command.threadId });
+      const now = nowIso();
+      return {
+        ...withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "thread.imported",
+        payload: {
+          threadId: command.threadId,
+          projectId: command.projectId,
+          title: command.title,
+          modelSelection: command.modelSelection,
+          runtimeMode: command.runtimeMode,
+          interactionMode: command.interactionMode,
+          messages: command.messages.map((m, i) => {
+            // Increment timestamp by 1ms per message so UI sort preserves order
+            const ts = new Date(new Date(now).getTime() + i).toISOString();
+            return {
+              id: crypto.randomUUID() as MessageId,
+              role: m.role,
+              text: m.text,
+              turnId: null,
+              streaming: false,
+              createdAt: ts,
+              updatedAt: ts,
+            };
+          }),
           createdAt: command.createdAt,
           updatedAt: command.createdAt,
         },
