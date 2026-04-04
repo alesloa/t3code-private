@@ -1,19 +1,189 @@
 import type { GitLogEntry, ThreadId } from "@t3tools/contracts";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { LoaderIcon } from "lucide-react";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { toastManager } from "~/components/ui/toast";
 import {
-  gitLogQueryOptions,
   gitQueryKeys,
   gitRevertCommitMutationOptions,
   gitSoftResetMutationOptions,
 } from "~/lib/gitReactQuery";
-import { computeGraphLayout, LANE_WIDTH, NODE_RADIUS, ROW_HEIGHT } from "./graphLayout";
+import { ensureNativeApi } from "~/nativeApi";
+import {
+  type HistoryItemViewModel,
+  CIRCLE_RADIUS,
+  CIRCLE_STROKE_WIDTH,
+  GRAPH_REF_COLOR,
+  SWIMLANE_CURVE_RADIUS,
+  SWIMLANE_HEIGHT,
+  SWIMLANE_WIDTH,
+  findLastSwimlaneIndex,
+  getCircleInfo,
+  toViewModelArray,
+} from "./graphLayout";
 
-// ── Relative time helper ──────────────────────────────────────────────
+// ── Shorthand constants ──────────────────────────────────────────────
+
+const SW = SWIMLANE_WIDTH;
+const SH = SWIMLANE_HEIGHT;
+const CR = SWIMLANE_CURVE_RADIUS;
+
+// ── Monolithic graph SVG computation ─────────────────────────────────
+// Produces all paths and circles for the entire commit list in a single
+// coordinate space. This guarantees lines connect seamlessly between
+// rows — no gaps possible since everything is in one SVG.
+
+interface GPath {
+  d: string;
+  color: string;
+}
+interface GCircle {
+  cx: number;
+  cy: number;
+  r: number;
+  color: string;
+  kind: "node" | "head-outer" | "head-inner" | "merge-outer" | "merge-inner";
+}
+interface MonolithicGraph {
+  paths: GPath[];
+  circles: GCircle[];
+  width: number;
+  height: number;
+}
+
+function computeMonolithicGraph(viewModels: readonly HistoryItemViewModel[]): MonolithicGraph {
+  const paths: GPath[] = [];
+  const circles: GCircle[] = [];
+  let maxCols = 1;
+
+  for (let row = 0; row < viewModels.length; row++) {
+    const vm = viewModels[row]!;
+    const { entry, inputSwimlanes, outputSwimlanes } = vm;
+    const y = row * SH;
+
+    // Track max columns including the circle position (which can be one
+    // past the end of the lane arrays for new commits).
+    const inputIndex = inputSwimlanes.findIndex((n) => n.id === entry.sha);
+    const circleIndex = inputIndex !== -1 ? inputIndex : inputSwimlanes.length;
+    const circleColor =
+      circleIndex < outputSwimlanes.length
+        ? outputSwimlanes[circleIndex]!.color
+        : circleIndex < inputSwimlanes.length
+          ? inputSwimlanes[circleIndex]!.color
+          : GRAPH_REF_COLOR;
+
+    const cols = Math.max(inputSwimlanes.length, outputSwimlanes.length, circleIndex + 1);
+    if (cols > maxCols) maxCols = cols;
+
+    // ── Input swimlane processing (VS Code scmHistory.ts:143-199) ──
+    let outputSwimlaneIndex = 0;
+    for (let i = 0; i < inputSwimlanes.length; i++) {
+      const color = inputSwimlanes[i]!.color;
+
+      if (inputSwimlanes[i]!.id === entry.sha) {
+        // Current commit's lane
+        if (i !== circleIndex) {
+          // Merge-back: draw / then - to the circle position
+          paths.push({
+            d: [
+              `M ${SW * (i + 1)} ${y}`,
+              `A ${SW} ${SW} 0 0 1 ${SW * i} ${y + SW}`,
+              `H ${SW * (circleIndex + 1)}`,
+            ].join(" "),
+            color,
+          });
+        } else {
+          outputSwimlaneIndex++;
+        }
+      } else {
+        // Not the current commit — pass through or lane-shift
+        if (
+          outputSwimlaneIndex < outputSwimlanes.length &&
+          inputSwimlanes[i]!.id === outputSwimlanes[outputSwimlaneIndex]!.id
+        ) {
+          if (i === outputSwimlaneIndex) {
+            // Straight vertical |
+            paths.push({ d: `M ${SW * (i + 1)} ${y} V ${y + SH}`, color });
+          } else {
+            // Lane shift S-curve: | then / then - then / then |
+            const x1 = SW * (i + 1);
+            const x2 = SW * (outputSwimlaneIndex + 1);
+            paths.push({
+              d: [
+                `M ${x1} ${y}`,
+                `V ${y + 6}`,
+                `A ${CR} ${CR} 0 0 1 ${x1 - CR} ${y + SH / 2}`,
+                `H ${x2 + CR}`,
+                `A ${CR} ${CR} 0 0 0 ${x2} ${y + SH / 2 + CR}`,
+                `V ${y + SH}`,
+              ].join(" "),
+              color,
+            });
+          }
+          outputSwimlaneIndex++;
+        }
+      }
+    }
+
+    // ── Fork lines for additional parents (VS Code scmHistory.ts:203-223) ──
+    for (let i = 1; i < entry.parents.length; i++) {
+      const pIdx = findLastSwimlaneIndex(outputSwimlanes, entry.parents[i]!);
+      if (pIdx === -1) continue;
+      const pColor = outputSwimlanes[pIdx]!.color;
+      // Draw \ curve from circle midpoint down-right, then - back to circle
+      paths.push({
+        d: [
+          `M ${SW * pIdx} ${y + SH / 2}`,
+          `A ${SW} ${SW} 0 0 1 ${SW * (pIdx + 1)} ${y + SH}`,
+          `M ${SW * pIdx} ${y + SH / 2}`,
+          `H ${SW * (circleIndex + 1)}`,
+        ].join(" "),
+        color: pColor,
+      });
+    }
+
+    // ── | to * (vertical line from top of row to circle center) ──
+    if (inputIndex !== -1) {
+      paths.push({
+        d: `M ${SW * (circleIndex + 1)} ${y} V ${y + SH / 2}`,
+        color: inputSwimlanes[inputIndex]!.color,
+      });
+    }
+
+    // ── | from * (vertical line from circle center to bottom of row) ──
+    if (entry.parents.length > 0) {
+      paths.push({
+        d: `M ${SW * (circleIndex + 1)} ${y + SH / 2} V ${y + SH}`,
+        color: circleColor,
+      });
+    }
+
+    // ── Circles (VS Code scmHistory.ts:237-268) ──
+    const cx = SW * (circleIndex + 1);
+    const cy = y + SW;
+
+    if (vm.kind === "HEAD") {
+      circles.push({ cx, cy, r: CIRCLE_RADIUS + 3, color: circleColor, kind: "head-outer" });
+      circles.push({ cx, cy, r: CIRCLE_STROKE_WIDTH, color: circleColor, kind: "head-inner" });
+    } else if (entry.parents.length > 1) {
+      circles.push({ cx, cy, r: CIRCLE_RADIUS + 2, color: circleColor, kind: "merge-outer" });
+      circles.push({ cx, cy, r: CIRCLE_RADIUS - 1, color: circleColor, kind: "merge-inner" });
+    } else {
+      circles.push({ cx, cy, r: CIRCLE_RADIUS + 1, color: circleColor, kind: "node" });
+    }
+  }
+
+  return {
+    paths,
+    circles,
+    width: SW * (maxCols + 1),
+    height: viewModels.length * SH,
+  };
+}
+
+// ── Relative time helper ─────────────────────────────────────────────
 
 const SECOND = 1_000;
 const MINUTE = 60 * SECOND;
@@ -28,38 +198,20 @@ function relativeTime(dateStr: string): string {
   const then = new Date(dateStr).getTime();
   const diff = now - then;
   if (diff < MINUTE) return "just now";
-  if (diff < HOUR) {
-    const m = Math.floor(diff / MINUTE);
-    return `${m}m ago`;
-  }
-  if (diff < DAY) {
-    const h = Math.floor(diff / HOUR);
-    return `${h}h ago`;
-  }
-  if (diff < WEEK) {
-    const d = Math.floor(diff / DAY);
-    return `${d}d ago`;
-  }
-  if (diff < MONTH) {
-    const w = Math.floor(diff / WEEK);
-    return `${w}w ago`;
-  }
-  if (diff < YEAR) {
-    const mo = Math.floor(diff / MONTH);
-    return `${mo}mo ago`;
-  }
-  const y = Math.floor(diff / YEAR);
-  return `${y}y ago`;
+  if (diff < HOUR) return `${Math.floor(diff / MINUTE)}m ago`;
+  if (diff < DAY) return `${Math.floor(diff / HOUR)}h ago`;
+  if (diff < WEEK) return `${Math.floor(diff / DAY)}d ago`;
+  if (diff < MONTH) return `${Math.floor(diff / WEEK)}w ago`;
+  if (diff < YEAR) return `${Math.floor(diff / MONTH)}mo ago`;
+  return `${Math.floor(diff / YEAR)}y ago`;
 }
 
-// ── Ref badge helpers ─────────────────────────────────────────────────
+// ── Ref badge helpers ────────────────────────────────────────────────
 
-/** Deduplicate refs: if both "main" and "origin/main" exist, only keep "main". */
 function deduplicateRefs(refs: readonly string[]): string[] {
   const locals = new Set<string>();
   const result: string[] = [];
 
-  // First pass: collect local branch names
   for (const ref of refs) {
     if (!ref.startsWith("origin/") && !ref.startsWith("HEAD") && !ref.startsWith("tag: ")) {
       locals.add(ref);
@@ -67,15 +219,12 @@ function deduplicateRefs(refs: readonly string[]): string[] {
   }
 
   for (const ref of refs) {
-    // Skip "HEAD -> branch" if we already have the branch itself
     if (ref.startsWith("HEAD -> ")) {
       const branch = ref.slice(8);
       if (locals.has(branch)) continue;
-      // Show as just "HEAD" since branch badge is separate
       result.push("HEAD");
       continue;
     }
-    // Skip "origin/X" if local "X" exists
     if (ref.startsWith("origin/")) {
       const local = ref.slice(7);
       if (locals.has(local) || local === "HEAD") continue;
@@ -86,19 +235,21 @@ function deduplicateRefs(refs: readonly string[]): string[] {
   return result;
 }
 
-function RefBadge({ name }: { name: string }) {
+function RefBadge({ name, color }: { name: string; color: string }) {
   const isHead = name === "HEAD";
   const isTag = name.startsWith("tag: ");
   const label = isTag ? name.slice(5) : name;
-  const bg = isHead
-    ? "bg-amber-500/20 text-amber-300 border-amber-500/30"
-    : isTag
-      ? "bg-purple-500/20 text-purple-300 border-purple-500/30"
-      : "bg-blue-500/20 text-blue-300 border-blue-500/30";
+
+  // VS Code uses solid background with inverted text for colored refs
+  const bgColor = isHead ? GRAPH_REF_COLOR : color;
 
   return (
     <span
-      className={`shrink-0 rounded border px-1 py-px font-mono text-[9px] leading-tight ${bg}`}
+      className="shrink-0 rounded-full px-1.5 py-px text-[10px] leading-[18px] font-medium"
+      style={{
+        backgroundColor: bgColor,
+        color: "var(--background)",
+      }}
       title={name}
     >
       {label}
@@ -106,7 +257,7 @@ function RefBadge({ name }: { name: string }) {
   );
 }
 
-// ── Context menu ──────────────────────────────────────────────────────
+// ── Context menu ─────────────────────────────────────────────────────
 
 interface ContextMenuState {
   x: number;
@@ -161,7 +312,6 @@ function ConfirmDialog({
   onCancel: () => void;
 }) {
   const shortSha = state.entry.sha.slice(0, 8);
-
   const title = state.action === "uncommit" ? "Uncommit this commit?" : "Revert this commit?";
   const description =
     state.action === "uncommit"
@@ -239,7 +389,6 @@ function CommitContextMenu({
     };
   }, [onClose]);
 
-  // Adjust position so the menu stays within the viewport
   const style = useMemo(() => {
     const menuWidth = 260;
     const menuHeight = 120;
@@ -287,47 +436,58 @@ function CommitContextMenu({
   );
 }
 
-// ── Commit row with tooltip ───────────────────────────────────────────
+// ── Commit row (text overlay on top of monolithic SVG) ───────────────
 
 function CommitRow({
-  entry,
-  svgWidth,
+  vm,
+  graphWidth,
   dedupedRefs,
   onContextMenu,
 }: {
-  entry: GitLogEntry;
-  svgWidth: number;
+  vm: HistoryItemViewModel;
+  graphWidth: number;
   dedupedRefs: string[];
   onContextMenu: (e: React.MouseEvent, entry: GitLogEntry) => void;
 }) {
+  const { entry } = vm;
+  const { color: circleColor } = getCircleInfo(vm);
   const timeAgo = relativeTime(entry.authorDate);
   const fullDate = new Date(entry.authorDate).toLocaleString();
-  const { body } = entry;
+  const isHead = vm.kind === "HEAD";
 
   return (
     <Tooltip>
       <TooltipTrigger
         render={
           <div
-            className="flex items-center text-xs hover:bg-accent/30"
-            style={{
-              height: ROW_HEIGHT,
-              paddingLeft: svgWidth + 4,
-              position: "relative",
-            }}
+            className="relative flex items-center text-xs hover:bg-accent/30"
+            style={{ height: SH, paddingLeft: graphWidth + 6 }}
             onContextMenu={(e) => onContextMenu(e, entry)}
           />
         }
       >
-        {/* Refs + subject */}
-        <div className="flex min-w-0 flex-1 items-center gap-1">
-          {dedupedRefs.map((ref) => (
-            <RefBadge key={`${entry.sha}-${ref}`} name={ref} />
-          ))}
-          <span className="truncate text-foreground">{entry.subject}</span>
+        {/* Subject + author (VS Code: label comes before badges) */}
+        <div className="flex min-w-0 flex-1 items-center gap-1.5">
+          <span
+            className={`truncate ${isHead ? "font-semibold text-foreground" : "text-foreground"}`}
+          >
+            {entry.subject}
+          </span>
+          <span className="hidden truncate text-muted-foreground sm:inline">
+            {entry.authorName}
+          </span>
         </div>
 
-        {/* Meta: SHA + time — hidden on very narrow panels */}
+        {/* Ref badges (VS Code: label-container after subject) */}
+        {dedupedRefs.length > 0 && (
+          <div className="ml-1 flex shrink-0 items-center gap-1">
+            {dedupedRefs.map((ref) => (
+              <RefBadge key={`${entry.sha}-${ref}`} name={ref} color={circleColor} />
+            ))}
+          </div>
+        )}
+
+        {/* SHA + time */}
         <div className="ml-2 hidden shrink-0 items-center gap-2 pr-2 text-[10px] text-muted-foreground sm:flex">
           <span className="font-mono">{entry.shortSha}</span>
           <span className="w-[52px] text-right">{timeAgo}</span>
@@ -335,9 +495,9 @@ function CommitRow({
       </TooltipTrigger>
       <TooltipPopup side="bottom" align="start" className="max-w-sm">
         <p className="font-medium">{entry.subject}</p>
-        {body && (
+        {entry.body && (
           <p className="mt-1 text-[11px] text-muted-foreground" style={{ whiteSpace: "pre-wrap" }}>
-            {body}
+            {entry.body}
           </p>
         )}
         <div className="mt-1 space-y-0.5 text-[11px] text-muted-foreground">
@@ -352,7 +512,49 @@ function CommitRow({
   );
 }
 
-// ── Main component ────────────────────────────────────────────────────
+// ── Render a single circle element ───────────────────────────────────
+
+function renderCircle(c: GCircle, i: number) {
+  switch (c.kind) {
+    case "head-outer":
+      return (
+        <circle
+          key={`co${i}`}
+          cx={c.cx}
+          cy={c.cy}
+          r={c.r}
+          className="scm-graph-node"
+          style={{ fill: c.color, strokeWidth: `${CIRCLE_STROKE_WIDTH}px` }}
+        />
+      );
+    case "head-inner":
+      return (
+        <circle
+          key={`ci${i}`}
+          cx={c.cx}
+          cy={c.cy}
+          r={c.r}
+          className="scm-graph-node scm-graph-node-inner"
+          style={{ strokeWidth: `${CIRCLE_RADIUS}px` }}
+        />
+      );
+    case "merge-outer":
+    case "merge-inner":
+    case "node":
+      return (
+        <circle
+          key={`c${i}`}
+          cx={c.cx}
+          cy={c.cy}
+          r={c.r}
+          className="scm-graph-node"
+          style={{ fill: c.color, strokeWidth: `${CIRCLE_STROKE_WIDTH}px` }}
+        />
+      );
+  }
+}
+
+// ── Main component ───────────────────────────────────────────────────
 
 const PAGE_SIZE = 50;
 
@@ -363,34 +565,87 @@ export default memo(function GraphTab({
   gitCwd: string | null;
   threadId: ThreadId;
 }) {
-  const [skip, setSkip] = useState(0);
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [confirmDialog, setConfirmDialog] = useState<ConfirmState | null>(null);
   const queryClient = useQueryClient();
+  const sentinelRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
 
-  const { data, isLoading, isError } = useQuery(
-    gitLogQueryOptions(gitCwd, { skip, maxCount: PAGE_SIZE }),
+  // ── Infinite query — accumulates pages like VS Code ───────────────
+  const {
+    data,
+    isLoading,
+    isError,
+    hasNextPage,
+    fetchNextPage,
+    isFetchingNextPage,
+  } = useInfiniteQuery({
+    queryKey: ["git", "log-infinite", gitCwd] as const,
+    queryFn: async ({ pageParam }) => {
+      const api = ensureNativeApi();
+      if (!gitCwd) throw new Error("Git log is unavailable.");
+      return api.git.log({ cwd: gitCwd, skip: pageParam, maxCount: PAGE_SIZE });
+    },
+    initialPageParam: 0,
+    getNextPageParam: (lastPage, allPages) => {
+      if (!lastPage.hasMore) return undefined;
+      return allPages.reduce((sum, p) => sum + p.entries.length, 0);
+    },
+    enabled: gitCwd !== null,
+    staleTime: 10_000,
+  });
+
+  // Flatten all accumulated pages into one continuous entries array
+  const rawEntries = useMemo(
+    () => data?.pages.flatMap((p) => p.entries) ?? [],
+    [data?.pages],
   );
 
-  const entries = useMemo(() => data?.entries ?? [], [data?.entries]);
-  const hasMore = data?.hasMore ?? false;
+  // Filter out orphan root commits (e.g. t3 checkpoint snapshots) that are
+  // not referenced as a parent by any other entry.  These produce
+  // disconnected dots in the graph.  We keep genuine root commits (the very
+  // first commit in a repo) because another entry will list them as a parent.
+  const entries = useMemo(() => {
+    const parentSet = new Set<string>();
+    for (const e of rawEntries) {
+      for (const p of e.parents) parentSet.add(p);
+    }
+    return rawEntries.filter((e) => e.parents.length > 0 || parentSet.has(e.sha));
+  }, [rawEntries]);
 
-  const layout = useMemo(() => computeGraphLayout(entries), [entries]);
+  const viewModels = useMemo(() => toViewModelArray(entries), [entries]);
+  const graph = useMemo(() => computeMonolithicGraph(viewModels), [viewModels]);
   const dedupedRefsMap = useMemo(
     () => new Map(entries.map((e) => [e.sha, deduplicateRefs(e.refs)])),
     [entries],
   );
 
-  const svgWidth = LANE_WIDTH * (layout.maxColumns + 2);
-  const svgHeight = entries.length * ROW_HEIGHT;
+  // ── Infinite scroll via IntersectionObserver ──────────────────────
+  useEffect(() => {
+    const sentinel = sentinelRef.current;
+    const container = scrollContainerRef.current;
+    if (!sentinel || !container) return;
 
-  // ── Mutations ───────────────────────────────────────────────────────
+    const observer = new IntersectionObserver(
+      (observerEntries) => {
+        if (observerEntries[0]?.isIntersecting && hasNextPage && !isFetchingNextPage) {
+          void fetchNextPage();
+        }
+      },
+      { root: container, rootMargin: "200px" },
+    );
+
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
+
+  // ── Mutations ─────────────────────────────────────────────────────
   const softResetMutation = useMutation(gitSoftResetMutationOptions({ cwd: gitCwd, queryClient }));
   const revertCommitMutation = useMutation(
     gitRevertCommitMutationOptions({ cwd: gitCwd, queryClient }),
   );
 
-  // ── Context menu handlers ───────────────────────────────────────────
+  // ── Context menu handlers ─────────────────────────────────────────
   const handleContextMenu = useCallback((e: React.MouseEvent, entry: GitLogEntry) => {
     e.preventDefault();
     setContextMenu({ x: e.clientX, y: e.clientY, entry });
@@ -417,7 +672,6 @@ export default memo(function GraphTab({
 
   const handleRevert = useCallback(
     (sha: string) => {
-      // Find the entry for context in the confirm dialog
       const entry = entries.find((e) => e.sha === sha);
       if (!entry) return;
       setConfirmDialog({ action: "revert", entry });
@@ -478,7 +732,7 @@ export default memo(function GraphTab({
   return (
     <div className="flex h-full flex-col">
       {/* Commit list */}
-      <div className="flex-1 overflow-auto">
+      <div ref={scrollContainerRef} className="flex-1 overflow-auto">
         {isLoading && entries.length === 0 && (
           <div className="flex items-center justify-center p-4">
             <LoaderIcon className="size-4 animate-spin text-muted-foreground" />
@@ -495,72 +749,48 @@ export default memo(function GraphTab({
           <p className="px-3 py-4 text-center text-xs text-muted-foreground">No commits found.</p>
         )}
 
-        {entries.length > 0 && (
-          <div className="relative" style={{ minHeight: svgHeight }}>
-            {/* SVG graph lines */}
+        {viewModels.length > 0 && (
+          <div className="relative" style={{ minHeight: graph.height }}>
+            {/* Single monolithic SVG — all graph paths in one coordinate space */}
             <svg
-              className="pointer-events-none absolute left-0 top-0"
-              width={svgWidth}
-              height={svgHeight}
-              style={{ zIndex: 0 }}
+              className="scm-graph pointer-events-none absolute top-0 left-0"
+              width={graph.width}
+              height={graph.height}
+              style={{ zIndex: 0, overflow: "visible" }}
             >
-              {layout.edges.map((edge) => (
+              {graph.paths.map((p) => (
                 <path
-                  key={edge.id}
-                  d={edge.pathData}
+                  key={p.d}
+                  d={p.d}
                   fill="none"
-                  stroke={edge.color}
-                  strokeWidth={1.5}
-                  strokeOpacity={0.7}
+                  strokeWidth={1}
+                  strokeLinecap="round"
+                  style={{ stroke: p.color }}
                 />
               ))}
-              {layout.nodes.map((node) => (
-                <circle
-                  key={node.sha}
-                  cx={LANE_WIDTH + node.column * LANE_WIDTH}
-                  cy={ROW_HEIGHT / 2 + node.row * ROW_HEIGHT}
-                  r={NODE_RADIUS}
-                  fill={node.color}
-                />
-              ))}
+              {graph.circles.map(renderCircle)}
             </svg>
 
-            {/* Commit rows */}
-            {entries.map((entry) => (
+            {/* Commit rows overlaid on top */}
+            {viewModels.map((vm) => (
               <CommitRow
-                key={entry.sha}
-                entry={entry}
-                svgWidth={svgWidth}
-                dedupedRefs={dedupedRefsMap.get(entry.sha) ?? []}
+                key={vm.entry.sha}
+                vm={vm}
+                graphWidth={graph.width}
+                dedupedRefs={dedupedRefsMap.get(vm.entry.sha) ?? []}
                 onContextMenu={handleContextMenu}
               />
             ))}
           </div>
         )}
 
-        {/* Pagination */}
-        {(hasMore || skip > 0) && (
-          <div className="flex items-center justify-center gap-2 border-t border-border px-3 py-2">
-            {skip > 0 && (
-              <button
-                type="button"
-                onClick={() => setSkip(Math.max(0, skip - PAGE_SIZE))}
-                className="rounded-md px-2 py-0.5 text-xs font-medium text-muted-foreground hover:bg-accent/50 hover:text-foreground"
-              >
-                Newer
-              </button>
-            )}
-            {hasMore && (
-              <button
-                type="button"
-                onClick={() => setSkip(skip + PAGE_SIZE)}
-                className="rounded-md px-2 py-0.5 text-xs font-medium text-muted-foreground hover:bg-accent/50 hover:text-foreground"
-              >
-                Older
-              </button>
-            )}
+        {/* Infinite scroll sentinel + loading indicator */}
+        {isFetchingNextPage && (
+          <div className="flex items-center justify-center py-2">
+            <LoaderIcon className="size-3 animate-spin text-muted-foreground" />
           </div>
         )}
+        <div ref={sentinelRef} className="h-px" />
       </div>
 
       {/* Context menu */}

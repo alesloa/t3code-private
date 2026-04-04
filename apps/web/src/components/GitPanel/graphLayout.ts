@@ -1,330 +1,129 @@
 import type { GitLogEntry } from "@t3tools/contracts";
 
-export interface GraphNode {
-  sha: string;
-  column: number;
-  row: number;
-  color: string;
-}
+// ── VS Code graph constants (from scmHistory.ts) ─────────────────────
 
-export interface GraphEdge {
+export const SWIMLANE_HEIGHT = 22;
+export const SWIMLANE_WIDTH = 11;
+export const SWIMLANE_CURVE_RADIUS = 5;
+export const CIRCLE_RADIUS = 4;
+export const CIRCLE_STROKE_WIDTH = 2;
+
+/** VS Code's default branch color (charts.blue → editorInfo.foreground) */
+export const GRAPH_REF_COLOR = "#59a4f9";
+
+/** VS Code's 5-color rotation for additional swimlanes */
+export const GRAPH_COLORS = ["#FFB000", "#DC267F", "#994F00", "#40B0A6", "#B66DFF"] as const;
+
+// ── Types ────────────────────────────────────────────────────────────
+
+export interface SwimlaneNode {
   id: string;
-  fromSha: string;
-  toSha: string;
-  pathData: string;
   color: string;
 }
 
-export interface GraphLayout {
-  nodes: GraphNode[];
-  edges: GraphEdge[];
-  maxColumns: number;
+export type CommitKind = "HEAD" | "node";
+
+export interface HistoryItemViewModel {
+  entry: GitLogEntry;
+  inputSwimlanes: SwimlaneNode[];
+  outputSwimlanes: SwimlaneNode[];
+  kind: CommitKind;
 }
 
-const LANE_COLORS = [
-  "#4ea6f5",
-  "#e5534b",
-  "#57ab5a",
-  "#c69026",
-  "#986ee2",
-  "#d08770",
-  "#6cb6ff",
-  "#adbac7",
-  "#f47067",
-  "#8ddb8c",
-];
+// ── Helpers ──────────────────────────────────────────────────────────
 
-export const ROW_HEIGHT = 28;
-export const LANE_WIDTH = 16;
-export const NODE_RADIUS = 4;
-
-function laneX(column: number): number {
-  return LANE_WIDTH + column * LANE_WIDTH;
+function rot(index: number, length: number): number {
+  return ((index % length) + length) % length;
 }
 
-function rowY(row: number): number {
-  return ROW_HEIGHT / 2 + row * ROW_HEIGHT;
+export function findLastSwimlaneIndex(nodes: readonly SwimlaneNode[], id: string): number {
+  for (let i = nodes.length - 1; i >= 0; i--) {
+    if (nodes[i]!.id === id) return i;
+  }
+  return -1;
 }
 
-/**
- * Row-by-row graph layout algorithm.
- *
- * Instead of drawing long edges between distant commits, this algorithm
- * processes each row and draws:
- * 1. Continuation lines for active lanes passing through the row
- * 2. Fork curves when a merge commit creates new branch lanes
- * 3. Merge-back curves when multiple lanes converge to a single commit
- *
- * This produces the "railroad track" visual where branch lines are
- * continuous and clearly show where they diverge and converge.
- */
-export function computeGraphLayout(entries: readonly GitLogEntry[]): GraphLayout {
-  const nodes: GraphNode[] = [];
-  const edges: GraphEdge[] = [];
-  let edgeId = 0;
+// ── Swimlane algorithm ───────────────────────────────────────────────
+// Ported from VS Code's toISCMHistoryItemViewModelArray (scmHistory.ts)
+//
+// Each row has inputSwimlanes (state entering from above) and
+// outputSwimlanes (state leaving below). The rendering function uses
+// these to draw vertical pass-through lines, merge-back curves, fork
+// curves, and lane-shift S-curves.
 
-  // lanes[i] = SHA this lane is waiting for, or null if free
-  // laneColors[i] = color assigned to this lane
-  let lanes: (string | null)[] = [];
-  let laneColors: (string | null)[] = [];
-  let nextColorIdx = 0;
+export function toViewModelArray(entries: readonly GitLogEntry[]): HistoryItemViewModel[] {
+  let colorIndex = -1;
+  const viewModels: HistoryItemViewModel[] = [];
 
-  const shaToRow = new Map<string, number>();
-  for (let i = 0; i < entries.length; i++) {
-    shaToRow.set(entries[i]!.sha, i);
-  }
+  for (const entry of entries) {
+    const isHead = entry.refs.some((r) => r === "HEAD" || r.startsWith("HEAD -> "));
+    const kind: CommitKind = isHead ? "HEAD" : "node";
 
-  // Track which row each SHA was placed in and which column it occupied,
-  // so we can draw direct edges to already-processed parents.
-  const shaToNode = new Map<string, { row: number; column: number }>();
+    const previousOutput = viewModels.at(-1)?.outputSwimlanes ?? [];
+    const inputSwimlanes = previousOutput.map((n) => Object.assign({}, n));
+    const outputSwimlanes: SwimlaneNode[] = [];
 
-  function assignColor(): string {
-    const c = LANE_COLORS[nextColorIdx % LANE_COLORS.length]!;
-    nextColorIdx++;
-    return c;
-  }
+    let firstParentAdded = false;
 
-  function pushEdge(edge: Omit<GraphEdge, "id">): void {
-    edges.push({ ...edge, id: `e${edgeId++}` });
-  }
-
-  let maxColumns = 0;
-
-  for (let row = 0; row < entries.length; row++) {
-    const entry = entries[row]!;
-    const { sha, parents } = entry;
-
-    // ── Find all lanes expecting this commit ──
-    const matchingLanes: number[] = [];
-    for (let i = 0; i < lanes.length; i++) {
-      if (lanes[i] === sha) matchingLanes.push(i);
-    }
-
-    // Commit takes the leftmost matching lane, or a new one
-    let col: number;
-    if (matchingLanes.length > 0) {
-      col = matchingLanes[0]!;
+    if (entry.parents.length > 0) {
+      // Replace commit's lane with first parent; pass through others
+      for (const node of inputSwimlanes) {
+        if (node.id === entry.sha) {
+          if (!firstParentAdded) {
+            // VS Code: getLabelColorIdentifier() returns historyItemRefColor
+            // (blue) for the HEAD commit, otherwise inherits the lane color.
+            const laneColor = kind === "HEAD" ? GRAPH_REF_COLOR : node.color;
+            outputSwimlanes.push({
+              id: entry.parents[0]!,
+              color: laneColor,
+            });
+            firstParentAdded = true;
+          }
+          continue;
+        }
+        outputSwimlanes.push({ ...node });
+      }
     } else {
-      col = lanes.indexOf(null);
-      if (col === -1) {
-        col = lanes.length;
-        lanes.push(null);
-        laneColors.push(null);
+      // Root commit: consume commit's lane, pass through others
+      for (const node of inputSwimlanes) {
+        if (node.id === entry.sha) continue;
+        outputSwimlanes.push({ ...node });
       }
-      if (!laneColors[col]) laneColors[col] = assignColor();
     }
 
-    const commitColor = laneColors[col]!;
-    nodes.push({ sha, column: col, row, color: commitColor });
-    shaToNode.set(sha, { row, column: col });
-
-    // ── Draw merge-back edges for extra matching lanes ──
-    // These are branches that were converging to this commit.
-    // Draw a curve from their lane to this commit's lane.
-    for (const laneIdx of matchingLanes) {
-      if (laneIdx === col) continue;
-      // Merge-back: curve from laneIdx into col at this row
-      const fromX = laneX(laneIdx);
-      const toX = laneX(col);
-      const prevY = rowY(row - 1);
-      const curY = rowY(row);
-      const midY = (prevY + curY) / 2;
-      const edgeColor = laneColors[laneIdx] ?? commitColor;
-      pushEdge({
-        fromSha: sha,
-        toSha: sha,
-        pathData: `M ${fromX} ${prevY} C ${fromX} ${midY}, ${toX} ${midY}, ${toX} ${curY}`,
-        color: edgeColor,
-      });
-    }
-
-    // ── Build the next row's lane state ──
-    // Save the pre-mutation state for drawing continuation lines
-    const prevLanes = lanes.slice();
-    const prevColors = laneColors.slice();
-
-    // Free all matching lanes
-    for (const idx of matchingLanes) {
-      lanes[idx] = null;
-      // Don't clear color for col itself
-      if (idx !== col) laneColors[idx] = null;
-    }
-
-    // First parent continues this lane (unless already processed)
-    if (parents.length >= 1) {
-      const firstParentNode = shaToNode.get(parents[0]!);
-      if (firstParentNode != null) {
-        // First parent was already rendered above — draw a direct edge
-        // and leave this lane free.
-        const fromX = laneX(col);
-        const toX = laneX(firstParentNode.column);
-        const fromY = rowY(row);
-        const toY = rowY(firstParentNode.row);
-        const midY = (fromY + toY) / 2;
-        pushEdge({
-          fromSha: sha,
-          toSha: parents[0]!,
-          pathData: `M ${fromX} ${fromY} C ${fromX} ${midY}, ${toX} ${midY}, ${toX} ${toY}`,
-          color: commitColor,
-        });
+    // Add remaining parent(s) as new swimlanes
+    for (let i = firstParentAdded ? 1 : 0; i < entry.parents.length; i++) {
+      // First parent of HEAD commit gets blue; everything else rotates
+      let color: string;
+      if (i === 0 && kind === "HEAD") {
+        color = GRAPH_REF_COLOR;
       } else {
-        lanes[col] = parents[0]!;
+        colorIndex = rot(colorIndex + 1, GRAPH_COLORS.length);
+        color = GRAPH_COLORS[colorIndex]!;
       }
+      outputSwimlanes.push({ id: entry.parents[i]!, color });
     }
 
-    // Additional parents: create new branch lanes (or draw direct edges
-    // to parents that were already processed in earlier rows).
-    const newForkLanes: number[] = [];
-    const directParentEdges: { pRow: number; pCol: number; color: string }[] = [];
-    for (let p = 1; p < parents.length; p++) {
-      const pSha = parents[p]!;
-
-      // If the parent was already processed (e.g. branch tip appeared before
-      // this merge in --all output), don't create a lane — it would never
-      // resolve. Instead, record a direct edge to the parent's node.
-      const parentNode = shaToNode.get(pSha);
-      if (parentNode != null) {
-        const color = assignColor();
-        directParentEdges.push({ pRow: parentNode.row, pCol: parentNode.column, color });
-        continue;
-      }
-
-      // Check if already tracked in an active lane
-      if (lanes.includes(pSha)) continue;
-
-      // Find free lane to the right
-      let free = -1;
-      for (let i = col + 1; i < lanes.length; i++) {
-        if (lanes[i] === null) {
-          free = i;
-          break;
-        }
-      }
-      if (free === -1) {
-        free = lanes.length;
-        lanes.push(null);
-        laneColors.push(null);
-      }
-      lanes[free] = pSha;
-      laneColors[free] = assignColor();
-      newForkLanes.push(free);
-    }
-
-    // Draw fork edges: curve from commit's column out to the new lane
-    for (const forkLane of newForkLanes) {
-      const fromX = laneX(col);
-      const toX = laneX(forkLane);
-      const curY = rowY(row);
-      const nextY = rowY(row + 1);
-      const midY = (curY + nextY) / 2;
-      const edgeColor = laneColors[forkLane]!;
-      pushEdge({
-        fromSha: sha,
-        toSha: sha,
-        pathData: `M ${fromX} ${curY} C ${fromX} ${midY}, ${toX} ${midY}, ${toX} ${nextY}`,
-        color: edgeColor,
-      });
-    }
-
-    // Draw direct edges to already-processed parents (upward curves).
-    // These appear when --all causes a branch tip to be listed before the
-    // merge commit that references it.
-    for (const { pRow, pCol, color } of directParentEdges) {
-      const fromX = laneX(col);
-      const toX = laneX(pCol);
-      const fromY = rowY(row);
-      const toY = rowY(pRow);
-      const midY = (fromY + toY) / 2;
-      pushEdge({
-        fromSha: sha,
-        toSha: entries[pRow]!.sha,
-        pathData: `M ${fromX} ${fromY} C ${fromX} ${midY}, ${toX} ${midY}, ${toX} ${toY}`,
-        color,
-      });
-    }
-
-    // ── Draw continuation lines for all active lanes ──
-    // Any lane that was active before this row AND is still active after,
-    // gets a vertical line segment through this row.
-    // But skip the commit's own column (it has a node dot instead) and
-    // skip lanes that just merged in (they got a curve above).
-    const mergedSet = new Set(matchingLanes);
-    const forkedSet = new Set(newForkLanes);
-
-    for (let i = 0; i < Math.max(prevLanes.length, lanes.length); i++) {
-      const wasBefore = prevLanes[i] !== null && prevLanes[i] !== undefined;
-      const isAfter = lanes[i] !== null && lanes[i] !== undefined;
-
-      if (i === col) {
-        // Commit's lane: draw from top of row to the node, and from node to bottom
-        // if the lane continues
-        if (wasBefore && !mergedSet.has(i)) {
-          // Nothing special needed for continuation — handled by prev row
-        }
-        // If lane continues after (has a parent), the next row will draw the top segment
-        continue;
-      }
-
-      if (mergedSet.has(i)) {
-        // This lane merged into the commit — curve was drawn above, don't draw vertical
-        continue;
-      }
-
-      if (forkedSet.has(i)) {
-        // This lane was just forked — curve was drawn above, don't draw vertical
-        continue;
-      }
-
-      // Pass-through lane: draw vertical line through this row
-      if (wasBefore && isAfter) {
-        const x = laneX(i);
-        const topY = rowY(row - 1);
-        const botY = rowY(row);
-        const color = prevColors[i] ?? laneColors[i] ?? LANE_COLORS[0]!;
-        pushEdge({
-          fromSha: `pass-${row}-${i}`,
-          toSha: `pass-${row}-${i}`,
-          pathData: `M ${x} ${topY} L ${x} ${botY}`,
-          color,
-        });
-      }
-    }
-
-    // Draw the commit's own lane continuation (above and below the node)
-    if (row > 0 && matchingLanes.includes(col)) {
-      // Lane was active before → draw line from previous row to this node
-      const x = laneX(col);
-      const topY = rowY(row - 1);
-      const botY = rowY(row);
-      pushEdge({
-        fromSha: `cont-above-${row}`,
-        toSha: sha,
-        pathData: `M ${x} ${topY} L ${x} ${botY}`,
-        color: commitColor,
-      });
-    }
-
-    if (lanes[col] !== null) {
-      // Lane continues below → draw line from this node to next row
-      const x = laneX(col);
-      const topY = rowY(row);
-      const botY = rowY(row + 1);
-      pushEdge({
-        fromSha: sha,
-        toSha: `cont-below-${row}`,
-        pathData: `M ${x} ${topY} L ${x} ${botY}`,
-        color: commitColor,
-      });
-    }
-
-    if (lanes.length > maxColumns) maxColumns = lanes.length;
-
-    // Trim trailing nulls
-    while (lanes.length > 0 && lanes[lanes.length - 1] === null) {
-      lanes.pop();
-      laneColors.pop();
-    }
+    viewModels.push({ entry, kind, inputSwimlanes, outputSwimlanes });
   }
 
-  return { nodes, edges, maxColumns: Math.max(maxColumns, 1) };
+  return viewModels;
+}
+
+/** Compute circle position (swimlane index) and color for a row */
+export function getCircleInfo(vm: HistoryItemViewModel): {
+  index: number;
+  color: string;
+} {
+  const inputIndex = vm.inputSwimlanes.findIndex((n) => n.id === vm.entry.sha);
+  const circleIndex = inputIndex !== -1 ? inputIndex : vm.inputSwimlanes.length;
+
+  const color =
+    circleIndex < vm.outputSwimlanes.length
+      ? vm.outputSwimlanes[circleIndex]!.color
+      : circleIndex < vm.inputSwimlanes.length
+        ? vm.inputSwimlanes[circleIndex]!.color
+        : GRAPH_REF_COLOR;
+
+  return { index: circleIndex, color };
 }

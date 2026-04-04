@@ -7,12 +7,7 @@ import type {
   ProjectId,
 } from "@t3tools/contracts";
 import { DEFAULT_MODEL_BY_PROVIDER } from "@t3tools/contracts";
-import {
-  ChevronRightIcon,
-  Loader2Icon,
-  RefreshCwIcon,
-  TerminalIcon,
-} from "lucide-react";
+import { ChevronRightIcon, Loader2Icon, RefreshCwIcon, TerminalIcon } from "lucide-react";
 import { memo, useCallback, useState } from "react";
 
 import { readNativeApi } from "../nativeApi";

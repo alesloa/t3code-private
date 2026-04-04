@@ -2,12 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import type { CliSessionMessage, CliSessionSource, ModelSelection } from "@t3tools/contracts";
 import { DEFAULT_MODEL_BY_PROVIDER } from "@t3tools/contracts";
-import {
-  ArrowLeftIcon,
-  ChevronDownIcon,
-  GitForkIcon,
-  Loader2Icon,
-} from "lucide-react";
+import { ArrowLeftIcon, ChevronDownIcon, GitForkIcon, Loader2Icon } from "lucide-react";
 import { memo, useCallback, useRef, useState } from "react";
 
 import { readNativeApi } from "../nativeApi";
