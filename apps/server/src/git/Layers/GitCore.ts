@@ -1337,6 +1337,11 @@ export const makeGitCore = (options?: { executeOverride?: GitCoreShape["execute"
         ...input.filePaths,
       ]).pipe(Effect.asVoid);
 
+    const discardChanges: GitCoreShape["discardChanges"] = (input) =>
+      runGit("GitCore.discardChanges", input.cwd, ["checkout", "--", ...input.filePaths]).pipe(
+        Effect.asVoid,
+      );
+
     const deleteBranch: GitCoreShape["deleteBranch"] = (input) =>
       runGit("GitCore.deleteBranch", input.cwd, [
         "branch",
@@ -2240,6 +2245,7 @@ export const makeGitCore = (options?: { executeOverride?: GitCoreShape["execute"
       statusDetailed,
       stageFiles,
       unstageFiles,
+      discardChanges,
       deleteBranch,
       stashList,
       stashCreate,

@@ -33,6 +33,7 @@ export const gitMutationKeys = {
   pull: (cwd: string | null) => ["git", "mutation", "pull", cwd] as const,
   stageFiles: (cwd: string | null) => ["git", "mutation", "stage-files", cwd] as const,
   unstageFiles: (cwd: string | null) => ["git", "mutation", "unstage-files", cwd] as const,
+  discardChanges: (cwd: string | null) => ["git", "mutation", "discard-changes", cwd] as const,
   deleteBranch: (cwd: string | null) => ["git", "mutation", "delete-branch", cwd] as const,
   preparePullRequestThread: (cwd: string | null) =>
     ["git", "mutation", "prepare-pull-request-thread", cwd] as const,
@@ -286,6 +287,23 @@ export function gitUnstageFilesMutationOptions(input: {
       const api = ensureNativeApi();
       if (!input.cwd) throw new Error("Git unstage is unavailable.");
       return api.git.unstageFiles({ cwd: input.cwd, filePaths });
+    },
+    onSettled: async () => {
+      await invalidateGitQueries(input.queryClient);
+    },
+  });
+}
+
+export function gitDiscardChangesMutationOptions(input: {
+  cwd: string | null;
+  queryClient: QueryClient;
+}) {
+  return mutationOptions({
+    mutationKey: gitMutationKeys.discardChanges(input.cwd),
+    mutationFn: async (filePaths: string[]) => {
+      const api = ensureNativeApi();
+      if (!input.cwd) throw new Error("Git discard is unavailable.");
+      return api.git.discardChanges({ cwd: input.cwd, filePaths });
     },
     onSettled: async () => {
       await invalidateGitQueries(input.queryClient);

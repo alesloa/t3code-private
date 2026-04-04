@@ -200,6 +200,7 @@ export function createWsNativeApi(): NativeApi {
       statusDetailed: (input) => transport.request(WS_METHODS.gitStatusDetailed, input),
       stageFiles: (input) => transport.request(WS_METHODS.gitStageFiles, input),
       unstageFiles: (input) => transport.request(WS_METHODS.gitUnstageFiles, input),
+      discardChanges: (input) => transport.request(WS_METHODS.gitDiscardChanges, input),
       deleteBranch: (input) => transport.request(WS_METHODS.gitDeleteBranch, input),
       stashList: (input) => transport.request(WS_METHODS.gitStashList, input),
       stashCreate: (input) => transport.request(WS_METHODS.gitStashCreate, input),

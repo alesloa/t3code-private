@@ -274,7 +274,7 @@ function ChatThreadRouteView() {
         if (gitPanelOpen) {
           close(threadId);
         } else {
-          openPanel(threadId, "changes");
+          openPanel(threadId);
         }
       }
     };

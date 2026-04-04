@@ -42,6 +42,7 @@ import {
   GitLogInput,
   GitStatusInput,
   GitUnstageFilesInput,
+  GitDiscardChangesInput,
 } from "./git";
 import {
   TerminalClearInput,
@@ -120,6 +121,7 @@ export const WS_METHODS = {
   gitStatusDetailed: "git.statusDetailed",
   gitStageFiles: "git.stageFiles",
   gitUnstageFiles: "git.unstageFiles",
+  gitDiscardChanges: "git.discardChanges",
   gitDeleteBranch: "git.deleteBranch",
   gitStashList: "git.stashList",
   gitStashCreate: "git.stashCreate",
@@ -237,6 +239,7 @@ const WebSocketRequestBody = Schema.Union([
   tagRequestBody(WS_METHODS.gitStatusDetailed, GitStatusDetailedInput),
   tagRequestBody(WS_METHODS.gitStageFiles, GitStageFilesInput),
   tagRequestBody(WS_METHODS.gitUnstageFiles, GitUnstageFilesInput),
+  tagRequestBody(WS_METHODS.gitDiscardChanges, GitDiscardChangesInput),
   tagRequestBody(WS_METHODS.gitDeleteBranch, GitDeleteBranchInput),
   tagRequestBody(WS_METHODS.gitStashList, GitStashListInput),
   tagRequestBody(WS_METHODS.gitStashCreate, GitStashCreateInput),

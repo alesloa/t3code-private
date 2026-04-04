@@ -92,7 +92,7 @@ export default function GitActionsControl({ gitCwd, activeThreadId }: GitActions
       disabled={isGitActionRunning}
       onClick={() => {
         if (activeThreadId) {
-          openGitPanel(activeThreadId, "changes");
+          openGitPanel(activeThreadId);
         }
       }}
     >

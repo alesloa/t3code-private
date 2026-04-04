@@ -62,7 +62,7 @@ export const CliSessionView = memo(function CliSessionView({
           commandId: newCommandId(),
           threadId,
           projectId: activeProjectId,
-          title: `Imported: ${title ?? "CLI Session"}`,
+          title: title ?? "CLI Session",
           modelSelection,
           runtimeMode: "full-access",
           interactionMode: "default",
@@ -124,29 +124,26 @@ export const CliSessionView = memo(function CliSessionView({
             {sourceLabel} &middot; read-only
           </span>
           <div className="flex-1" />
-          {source === "claude" ? (
+          <div className="flex shrink-0 items-center gap-1">
             <Button
               size="sm"
               variant="outline"
-              className="shrink-0"
-              onClick={() => void handleFork("codex")}
+              onClick={() => void handleFork(source === "claude" ? "claudeAgent" : "codex")}
               disabled={!data?.messages.length || !activeProjectId}
             >
               <GitForkIcon className="mr-1.5 size-3.5" />
-              Fork to Codex
+              Continue with {source === "claude" ? "Claude" : "Codex"}
             </Button>
-          ) : (
             <Button
               size="sm"
               variant="outline"
-              className="shrink-0"
-              onClick={() => void handleFork("claudeAgent")}
+              onClick={() => void handleFork(source === "claude" ? "codex" : "claudeAgent")}
               disabled={!data?.messages.length || !activeProjectId}
             >
               <GitForkIcon className="mr-1.5 size-3.5" />
-              Fork to Claude
+              Continue with {source === "claude" ? "Codex" : "Claude"}
             </Button>
-          )}
+          </div>
         </div>
       </header>
 

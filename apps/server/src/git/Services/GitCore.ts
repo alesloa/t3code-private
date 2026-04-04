@@ -43,6 +43,7 @@ import type {
   GitStatusInput,
   GitStatusResult,
   GitUnstageFilesInput,
+  GitDiscardChangesInput,
 } from "@t3tools/contracts";
 
 import type { GitCommandError } from "../Errors.ts";
@@ -302,6 +303,11 @@ export interface GitCoreShape {
    * Unstage files by explicit paths.
    */
   readonly unstageFiles: (input: GitUnstageFilesInput) => Effect.Effect<void, GitCommandError>;
+
+  /**
+   * Discard working-tree changes for the given paths (git restore).
+   */
+  readonly discardChanges: (input: GitDiscardChangesInput) => Effect.Effect<void, GitCommandError>;
 
   /**
    * Delete a local branch.

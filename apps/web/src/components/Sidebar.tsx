@@ -839,8 +839,8 @@ export default function Sidebar() {
         thread.worktreePath ?? projectCwdById.get(thread.projectId) ?? null;
       const forkOption =
         thread.modelSelection.provider === "codex"
-          ? { id: "fork-claude" as const, label: "Fork to Claude" }
-          : { id: "fork-codex" as const, label: "Fork to Codex" };
+          ? { id: "fork-claude" as const, label: "Continue with Claude" }
+          : { id: "fork-codex" as const, label: "Continue with Codex" };
       const clicked = await api.contextMenu.show(
         [
           { id: "rename", label: "Rename thread" },

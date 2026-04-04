@@ -2,7 +2,7 @@ import type { ThreadId } from "@t3tools/contracts";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
-export type GitPanelTab = "changes" | "graph" | "branches" | "worktrees" | "stash" | "prs";
+export type GitPanelTab = "graph" | "branches" | "worktrees" | "stash" | "prs";
 
 export interface ActivityLogEntry {
   id: string;
@@ -20,11 +20,11 @@ interface ThreadGitPanelState {
   commitMessage: string;
 }
 
-const GIT_PANEL_STATE_STORAGE_KEY = "t3code:git-panel-state:v1";
+const GIT_PANEL_STATE_STORAGE_KEY = "t3code:git-panel-state:v2";
 
 const DEFAULT_THREAD_STATE: ThreadGitPanelState = Object.freeze({
   open: false,
-  activeTab: "changes" as GitPanelTab,
+  activeTab: "graph" as GitPanelTab,
   activityLogExpanded: false,
   commitMessage: "",
 });
@@ -154,11 +154,24 @@ export const useGitPanelStore = create<GitPanelStoreState>()(
     },
     {
       name: GIT_PANEL_STATE_STORAGE_KEY,
-      version: 1,
+      version: 2,
       storage: createJSONStorage(() => localStorage),
       partialize: (state) => ({
         stateByThreadId: state.stateByThreadId,
       }),
+      migrate: (persisted: unknown, version: number) => {
+        if (version < 2) {
+          const state = persisted as { stateByThreadId: Record<string, ThreadGitPanelState> };
+          for (const threadId of Object.keys(state.stateByThreadId)) {
+            const ts = state.stateByThreadId[threadId];
+            if (ts && (ts.activeTab as string) === "changes") {
+              ts.activeTab = "graph";
+            }
+          }
+          return state;
+        }
+        return persisted;
+      },
     },
   ),
 );

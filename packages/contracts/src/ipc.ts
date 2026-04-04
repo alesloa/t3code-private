@@ -45,6 +45,7 @@ import type {
   GitStatusInput,
   GitStatusResult,
   GitUnstageFilesInput,
+  GitDiscardChangesInput,
 } from "./git";
 import type {
   ProjectListEntriesInput,
@@ -233,6 +234,7 @@ export interface NativeApi {
     statusDetailed: (input: GitStatusDetailedInput) => Promise<GitStatusDetailedResult>;
     stageFiles: (input: GitStageFilesInput) => Promise<void>;
     unstageFiles: (input: GitUnstageFilesInput) => Promise<void>;
+    discardChanges: (input: GitDiscardChangesInput) => Promise<void>;
     deleteBranch: (input: GitDeleteBranchInput) => Promise<void>;
     // Stash API
     stashList: (input: GitStashListInput) => Promise<GitStashListResult>;

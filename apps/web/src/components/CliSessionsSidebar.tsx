@@ -97,7 +97,7 @@ export const CliSessionsSidebar = memo(function CliSessionsSidebar({
           commandId: newCommandId(),
           threadId,
           projectId,
-          title: `Imported: ${session.title}`,
+          title: session.title,
           modelSelection,
           runtimeMode: "full-access",
           interactionMode: "default",
@@ -123,11 +123,17 @@ export const CliSessionsSidebar = memo(function CliSessionsSidebar({
       const api = readNativeApi();
       if (!api) return;
 
-      const forkOption =
+      const options =
         session.source === "claude"
-          ? { id: "fork-codex" as const, label: "Fork to Codex" }
-          : { id: "fork-claude" as const, label: "Fork to Claude" };
-      const result = await api.contextMenu.show([forkOption], {
+          ? [
+              { id: "fork-claude" as const, label: "Continue with Claude" },
+              { id: "fork-codex" as const, label: "Continue with Codex" },
+            ]
+          : [
+              { id: "fork-codex" as const, label: "Continue with Codex" },
+              { id: "fork-claude" as const, label: "Continue with Claude" },
+            ];
+      const result = await api.contextMenu.show(options, {
         x: event.clientX,
         y: event.clientY,
       });

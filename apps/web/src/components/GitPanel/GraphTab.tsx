@@ -1,14 +1,36 @@
 import type { GitLogEntry, ThreadId } from "@t3tools/contracts";
-import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { LoaderIcon } from "lucide-react";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  ArrowDownIcon,
+  ArrowUpIcon,
+  ChevronDownIcon,
+  GitBranchIcon,
+  LoaderIcon,
+} from "lucide-react";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { Button } from "~/components/ui/button";
+import {
+  Dialog,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogPopup,
+  DialogTitle,
+} from "~/components/ui/dialog";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { toastManager } from "~/components/ui/toast";
 import {
+  gitBranchesQueryOptions,
+  gitCheckoutMutationOptions,
+  gitPullMutationOptions,
   gitQueryKeys,
   gitRevertCommitMutationOptions,
+  gitRunStackedActionMutationOptions,
   gitSoftResetMutationOptions,
+  gitStashCreateMutationOptions,
+  gitStatusDetailedQueryOptions,
+  invalidateGitQueries,
 } from "~/lib/gitReactQuery";
 import { ensureNativeApi } from "~/nativeApi";
 import {
@@ -38,6 +60,7 @@ const CR = SWIMLANE_CURVE_RADIUS;
 interface GPath {
   d: string;
   color: string;
+  width?: number;
 }
 interface GCircle {
   cx: number;
@@ -93,6 +116,7 @@ function computeMonolithicGraph(viewModels: readonly HistoryItemViewModel[]): Mo
               `H ${SW * (circleIndex + 1)}`,
             ].join(" "),
             color,
+            width: 2,
           });
         } else {
           outputSwimlaneIndex++;
@@ -554,6 +578,253 @@ function renderCircle(c: GCircle, i: number) {
   }
 }
 
+// ── Branch switcher ─────────────────────────────────────────────────
+
+interface StashDialogState {
+  targetBranch: string;
+}
+
+function BranchSwitcher({ gitCwd }: { gitCwd: string }) {
+  const queryClient = useQueryClient();
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [stashDialog, setStashDialog] = useState<StashDialogState | null>(null);
+  const [stashName, setStashName] = useState("");
+  const [isSwitching, setIsSwitching] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  const { data: branchData } = useQuery(gitBranchesQueryOptions(gitCwd));
+  const { data: statusData } = useQuery(gitStatusDetailedQueryOptions(gitCwd));
+
+  const checkoutMutation = useMutation(gitCheckoutMutationOptions({ cwd: gitCwd, queryClient }));
+  const stashCreateMutation = useMutation(
+    gitStashCreateMutationOptions({ cwd: gitCwd, queryClient }),
+  );
+  const pushMutation = useMutation(
+    gitRunStackedActionMutationOptions({ cwd: gitCwd, queryClient }),
+  );
+  const pullMutation = useMutation(gitPullMutationOptions({ cwd: gitCwd, queryClient }));
+
+  const branches = branchData?.branches ?? [];
+  const localBranches = branches.filter((b) => !b.isRemote);
+  const currentBranch = localBranches.find((b) => b.current);
+  const aheadCount = statusData?.aheadCount ?? 0;
+  const behindCount = statusData?.behindCount ?? 0;
+  const isSyncing = pushMutation.isPending || pullMutation.isPending;
+
+  // Has uncommitted changes (staged or unstaged — untracked is OK)
+  const hasUncommittedChanges =
+    (statusData?.staged?.length ?? 0) > 0 || (statusData?.unstaged?.length ?? 0) > 0;
+
+  // Close dropdown on outside click / escape
+  useEffect(() => {
+    if (!dropdownOpen) return;
+    function handleClick(e: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setDropdownOpen(false);
+      }
+    }
+    function handleKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setDropdownOpen(false);
+    }
+    document.addEventListener("mousedown", handleClick);
+    document.addEventListener("keydown", handleKey);
+    return () => {
+      document.removeEventListener("mousedown", handleClick);
+      document.removeEventListener("keydown", handleKey);
+    };
+  }, [dropdownOpen]);
+
+  const doCheckout = useCallback(
+    async (branch: string) => {
+      setIsSwitching(true);
+      try {
+        await checkoutMutation.mutateAsync(branch);
+        toastManager.add({ type: "success", title: `Switched to ${branch}` });
+        await invalidateGitQueries(queryClient);
+      } catch (err) {
+        toastManager.add({
+          type: "error",
+          title: "Checkout failed",
+          description: err instanceof Error ? err.message : "Unknown error",
+        });
+      } finally {
+        setIsSwitching(false);
+      }
+    },
+    [checkoutMutation, queryClient],
+  );
+
+  const handleBranchSelect = useCallback(
+    (branchName: string) => {
+      setDropdownOpen(false);
+      if (branchName === currentBranch?.name) return;
+
+      if (hasUncommittedChanges) {
+        setStashName("");
+        setStashDialog({ targetBranch: branchName });
+      } else {
+        void doCheckout(branchName);
+      }
+    },
+    [currentBranch?.name, hasUncommittedChanges, doCheckout],
+  );
+
+  const handleStashAndSwitch = useCallback(async () => {
+    if (!stashDialog) return;
+    setIsSwitching(true);
+    try {
+      const trimmed = stashName.trim();
+      await stashCreateMutation.mutateAsync({
+        ...(trimmed ? { message: trimmed } : {}),
+        includeUntracked: true,
+      });
+      toastManager.add({ type: "success", title: "Changes stashed" });
+      await doCheckout(stashDialog.targetBranch);
+    } catch (err) {
+      toastManager.add({
+        type: "error",
+        title: "Stash failed",
+        description: err instanceof Error ? err.message : "Unknown error",
+      });
+      setIsSwitching(false);
+    }
+    setStashDialog(null);
+  }, [stashDialog, stashName, stashCreateMutation, doCheckout]);
+
+  return (
+    <>
+      <div className="relative flex items-center gap-1.5 border-b border-border px-3 py-1.5">
+        <GitBranchIcon className="size-3 shrink-0 text-muted-foreground" />
+        <div ref={dropdownRef} className="relative flex-1">
+          <button
+            type="button"
+            disabled={isSwitching || localBranches.length === 0}
+            onClick={() => setDropdownOpen((o) => !o)}
+            className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-medium text-foreground hover:bg-accent/50 disabled:opacity-50"
+          >
+            <span className="max-w-[200px] truncate font-mono">
+              {currentBranch?.name ?? "detached"}
+            </span>
+            {isSwitching ? (
+              <LoaderIcon className="size-3 animate-spin" />
+            ) : (
+              <ChevronDownIcon className="size-3 opacity-50" />
+            )}
+          </button>
+
+          {dropdownOpen && (
+            <div className="absolute top-full left-0 z-50 mt-1 max-h-64 min-w-[200px] overflow-y-auto rounded-md border border-border bg-popover py-1 shadow-lg">
+              {localBranches.map((b) => (
+                <button
+                  key={b.name}
+                  type="button"
+                  onClick={() => handleBranchSelect(b.name)}
+                  className={`flex w-full items-center gap-2 px-3 py-1 text-left text-xs hover:bg-accent/50 ${
+                    b.current ? "font-semibold text-foreground" : "text-foreground"
+                  }`}
+                >
+                  {b.current && <span className="size-1.5 shrink-0 rounded-full bg-success" />}
+                  <span className="min-w-0 truncate font-mono">{b.name}</span>
+                  {b.isDefault && (
+                    <span className="ml-auto shrink-0 rounded bg-accent px-1 py-0.5 text-[9px] text-muted-foreground">
+                      default
+                    </span>
+                  )}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+        <div className="flex shrink-0 items-center gap-1">
+          {aheadCount > 0 && (
+            <Button
+              variant="outline"
+              size="xs"
+              disabled={isSyncing}
+              onClick={() =>
+                pushMutation.mutate({ actionId: crypto.randomUUID(), action: "commit_push" })
+              }
+              className="gap-0.5 text-[11px]"
+            >
+              {pushMutation.isPending ? (
+                <LoaderIcon className="size-3 animate-spin" />
+              ) : (
+                <ArrowUpIcon className="size-3" />
+              )}
+              {aheadCount} Push
+              <ChevronDownIcon className="size-3 opacity-50" />
+            </Button>
+          )}
+          {behindCount > 0 && (
+            <Button
+              variant="outline"
+              size="xs"
+              disabled={isSyncing}
+              onClick={() => pullMutation.mutate()}
+              className="gap-0.5 text-[11px]"
+            >
+              {pullMutation.isPending ? (
+                <LoaderIcon className="size-3 animate-spin" />
+              ) : (
+                <ArrowDownIcon className="size-3" />
+              )}
+              {behindCount} Pull
+            </Button>
+          )}
+        </div>
+      </div>
+
+      {/* Stash dialog when switching with uncommitted changes */}
+      <Dialog
+        open={stashDialog !== null}
+        onOpenChange={(open) => {
+          if (!open) setStashDialog(null);
+        }}
+      >
+        <DialogPopup className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="text-base">Uncommitted Changes</DialogTitle>
+            <DialogDescription>
+              You have uncommitted changes. Would you like to stash them before switching to{" "}
+              <span className="font-mono font-semibold">{stashDialog?.targetBranch}</span>?
+            </DialogDescription>
+          </DialogHeader>
+          <div className="px-6 pb-2">
+            <label className="block text-xs font-medium text-muted-foreground mb-1.5">
+              Stash name (optional)
+            </label>
+            <input
+              type="text"
+              value={stashName}
+              onChange={(e) => setStashName(e.target.value)}
+              placeholder="WIP: my changes"
+              className="w-full rounded-md border border-input bg-background px-2.5 py-1.5 text-xs outline-none focus:border-ring focus:ring-2 focus:ring-ring/24"
+              onKeyDown={(e) => {
+                if (e.key === "Enter") void handleStashAndSwitch();
+              }}
+              autoFocus
+            />
+          </div>
+          <DialogFooter>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setStashDialog(null)}
+              disabled={isSwitching}
+            >
+              Cancel
+            </Button>
+            <Button size="sm" onClick={() => void handleStashAndSwitch()} disabled={isSwitching}>
+              {isSwitching ? <LoaderIcon className="mr-1.5 size-3 animate-spin" /> : null}
+              Stash & Switch
+            </Button>
+          </DialogFooter>
+        </DialogPopup>
+      </Dialog>
+    </>
+  );
+}
+
 // ── Main component ───────────────────────────────────────────────────
 
 const PAGE_SIZE = 50;
@@ -572,34 +843,25 @@ export default memo(function GraphTab({
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   // ── Infinite query — accumulates pages like VS Code ───────────────
-  const {
-    data,
-    isLoading,
-    isError,
-    hasNextPage,
-    fetchNextPage,
-    isFetchingNextPage,
-  } = useInfiniteQuery({
-    queryKey: ["git", "log-infinite", gitCwd] as const,
-    queryFn: async ({ pageParam }) => {
-      const api = ensureNativeApi();
-      if (!gitCwd) throw new Error("Git log is unavailable.");
-      return api.git.log({ cwd: gitCwd, skip: pageParam, maxCount: PAGE_SIZE });
-    },
-    initialPageParam: 0,
-    getNextPageParam: (lastPage, allPages) => {
-      if (!lastPage.hasMore) return undefined;
-      return allPages.reduce((sum, p) => sum + p.entries.length, 0);
-    },
-    enabled: gitCwd !== null,
-    staleTime: 10_000,
-  });
+  const { data, isLoading, isError, hasNextPage, fetchNextPage, isFetchingNextPage } =
+    useInfiniteQuery({
+      queryKey: ["git", "log-infinite", gitCwd] as const,
+      queryFn: async ({ pageParam }) => {
+        const api = ensureNativeApi();
+        if (!gitCwd) throw new Error("Git log is unavailable.");
+        return api.git.log({ cwd: gitCwd, skip: pageParam, maxCount: PAGE_SIZE });
+      },
+      initialPageParam: 0,
+      getNextPageParam: (lastPage, allPages) => {
+        if (!lastPage.hasMore) return undefined;
+        return allPages.reduce((sum, p) => sum + p.entries.length, 0);
+      },
+      enabled: gitCwd !== null,
+      staleTime: 10_000,
+    });
 
   // Flatten all accumulated pages into one continuous entries array
-  const rawEntries = useMemo(
-    () => data?.pages.flatMap((p) => p.entries) ?? [],
-    [data?.pages],
-  );
+  const rawEntries = useMemo(() => data?.pages.flatMap((p) => p.entries) ?? [], [data?.pages]);
 
   // Filter out orphan root commits (e.g. t3 checkpoint snapshots) that are
   // not referenced as a parent by any other entry.  These produce
@@ -731,6 +993,9 @@ export default memo(function GraphTab({
 
   return (
     <div className="flex h-full flex-col">
+      {/* Branch switcher */}
+      {gitCwd && <BranchSwitcher gitCwd={gitCwd} />}
+
       {/* Commit list */}
       <div ref={scrollContainerRef} className="flex-1 overflow-auto">
         {isLoading && entries.length === 0 && (
@@ -758,14 +1023,14 @@ export default memo(function GraphTab({
               height={graph.height}
               style={{ zIndex: 0, overflow: "visible" }}
             >
-              {graph.paths.map((p) => (
+              {graph.paths.map((p, i) => (
                 <path
-                  key={p.d}
+                  key={`p${i}`}
                   d={p.d}
                   fill="none"
-                  strokeWidth={1}
+                  stroke={p.color}
+                  strokeWidth={p.width ?? 1}
                   strokeLinecap="round"
-                  style={{ stroke: p.color }}
                 />
               ))}
               {graph.circles.map(renderCircle)}

@@ -335,6 +335,14 @@ export const GitUnstageFilesInput = Schema.Struct({
 });
 export type GitUnstageFilesInput = typeof GitUnstageFilesInput.Type;
 
+// ── Discard Changes ───────────────────────────────────────────────────
+
+export const GitDiscardChangesInput = Schema.Struct({
+  cwd: TrimmedNonEmptyStringSchema,
+  filePaths: Schema.Array(TrimmedNonEmptyStringSchema).check(Schema.isMinLength(1)),
+});
+export type GitDiscardChangesInput = typeof GitDiscardChangesInput.Type;
+
 // ── Delete Branch ─────────────────────────────────────────────────────
 
 export const GitDeleteBranchInput = Schema.Struct({

@@ -1049,6 +1049,11 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
         return yield* git.unstageFiles(body);
       }
 
+      case WS_METHODS.gitDiscardChanges: {
+        const body = stripRequestTag(request.body);
+        return yield* git.discardChanges(body);
+      }
+
       case WS_METHODS.gitDeleteBranch: {
         const body = stripRequestTag(request.body);
         return yield* git.deleteBranch(body);
