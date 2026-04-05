@@ -520,6 +520,18 @@ export const GitStashRestoreFileInput = Schema.Struct({
 });
 export type GitStashRestoreFileInput = typeof GitStashRestoreFileInput.Type;
 
+// ── File Diff ────────────────────────────────────────────────────────
+
+export const GitFileDiffInput = Schema.Struct({
+  cwd: TrimmedNonEmptyStringSchema,
+  filePath: TrimmedNonEmptyStringSchema,
+  staged: Schema.Boolean,
+});
+export type GitFileDiffInput = typeof GitFileDiffInput.Type;
+
+export const GitFileDiffResult = Schema.Struct({ diff: Schema.String });
+export type GitFileDiffResult = typeof GitFileDiffResult.Type;
+
 // ── Soft Reset (Uncommit) ────────────────────────────────────────────
 
 export const GitSoftResetInput = Schema.Struct({

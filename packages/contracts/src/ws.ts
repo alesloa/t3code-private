@@ -43,6 +43,7 @@ import {
   GitStatusInput,
   GitUnstageFilesInput,
   GitDiscardChangesInput,
+  GitFileDiffInput,
 } from "./git";
 import {
   TerminalClearInput,
@@ -138,6 +139,7 @@ export const WS_METHODS = {
   gitStashRestoreFile: "git.stashRestoreFile",
   gitSoftReset: "git.softReset",
   gitRevertCommit: "git.revertCommit",
+  gitFileDiff: "git.fileDiff",
 
   // Terminal methods
   terminalOpen: "terminal.open",
@@ -256,6 +258,7 @@ const WebSocketRequestBody = Schema.Union([
   tagRequestBody(WS_METHODS.gitStashRestoreFile, GitStashRestoreFileInput),
   tagRequestBody(WS_METHODS.gitSoftReset, GitSoftResetInput),
   tagRequestBody(WS_METHODS.gitRevertCommit, GitRevertCommitInput),
+  tagRequestBody(WS_METHODS.gitFileDiff, GitFileDiffInput),
 
   // Terminal methods
   tagRequestBody(WS_METHODS.terminalOpen, TerminalOpenInput),

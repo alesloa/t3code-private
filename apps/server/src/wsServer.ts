@@ -1122,6 +1122,10 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
         const body = stripRequestTag(request.body);
         return yield* git.revertCommit(body);
       }
+      case WS_METHODS.gitFileDiff: {
+        const body = stripRequestTag(request.body);
+        return yield* git.fileDiff(body);
+      }
 
       case WS_METHODS.terminalOpen: {
         const body = stripRequestTag(request.body);

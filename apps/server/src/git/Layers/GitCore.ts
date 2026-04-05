@@ -1342,6 +1342,14 @@ export const makeGitCore = (options?: { executeOverride?: GitCoreShape["execute"
         Effect.asVoid,
       );
 
+    const fileDiff: GitCoreShape["fileDiff"] = (input) =>
+      runGitStdout("GitCore.fileDiff", input.cwd, [
+        "diff",
+        ...(input.staged ? ["--cached"] : []),
+        "--",
+        input.filePath,
+      ]).pipe(Effect.map((stdout) => ({ diff: stdout })));
+
     const deleteBranch: GitCoreShape["deleteBranch"] = (input) =>
       runGit("GitCore.deleteBranch", input.cwd, [
         "branch",
@@ -2246,6 +2254,7 @@ export const makeGitCore = (options?: { executeOverride?: GitCoreShape["execute"
       stageFiles,
       unstageFiles,
       discardChanges,
+      fileDiff,
       deleteBranch,
       stashList,
       stashCreate,

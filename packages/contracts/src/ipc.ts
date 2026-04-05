@@ -46,6 +46,8 @@ import type {
   GitStatusResult,
   GitUnstageFilesInput,
   GitDiscardChangesInput,
+  GitFileDiffInput,
+  GitFileDiffResult,
 } from "./git";
 import type {
   ProjectListEntriesInput,
@@ -246,6 +248,8 @@ export interface NativeApi {
     stashShowFiles: (input: GitStashShowInput) => Promise<GitStashShowFilesResult>;
     stashShowFile: (input: GitStashShowFileInput) => Promise<GitStashShowFileResult>;
     stashRestoreFile: (input: GitStashRestoreFileInput) => Promise<void>;
+    // File diff API
+    fileDiff: (input: GitFileDiffInput) => Promise<GitFileDiffResult>;
     // Soft reset / revert API
     softReset: (input: GitSoftResetInput) => Promise<void>;
     revertCommit: (input: GitRevertCommitInput) => Promise<void>;

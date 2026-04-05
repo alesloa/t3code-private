@@ -44,6 +44,8 @@ import type {
   GitStatusResult,
   GitUnstageFilesInput,
   GitDiscardChangesInput,
+  GitFileDiffInput,
+  GitFileDiffResult,
 } from "@t3tools/contracts";
 
 import type { GitCommandError } from "../Errors.ts";
@@ -308,6 +310,11 @@ export interface GitCoreShape {
    * Discard working-tree changes for the given paths (git restore).
    */
   readonly discardChanges: (input: GitDiscardChangesInput) => Effect.Effect<void, GitCommandError>;
+
+  /**
+   * Show the unified diff for a single file (staged or unstaged).
+   */
+  readonly fileDiff: (input: GitFileDiffInput) => Effect.Effect<GitFileDiffResult, GitCommandError>;
 
   /**
    * Delete a local branch.

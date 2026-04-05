@@ -13,10 +13,10 @@ import {
   Minimize2Icon,
   MinusIcon,
   PackageIcon,
-  Undo2Icon,
   PlusIcon,
   RefreshCwIcon,
   SparklesIcon,
+  Undo2Icon,
 } from "lucide-react";
 import { memo, useCallback, useState } from "react";
 
@@ -88,19 +88,15 @@ function FileRow({
   const [menuAnchor, setMenuAnchor] = useState<{ x: number; y: number } | null>(null);
 
   return (
-    <Menu open={menuOpen} onOpenChange={setMenuOpen}>
-      <MenuTrigger
-        render={
-          <div
-            className="group flex cursor-default items-center gap-1.5 px-3 py-0.5 pl-6 text-xs hover:bg-accent/40"
-            onClick={onClickFile}
-            onContextMenu={(e) => {
-              e.preventDefault();
-              setMenuAnchor({ x: e.clientX, y: e.clientY });
-              setMenuOpen(true);
-            }}
-          />
-        }
+    <>
+      <div
+        className="group flex cursor-default items-center gap-1.5 px-3 py-0.5 pl-6 text-xs hover:bg-accent/40"
+        onClick={onClickFile}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          setMenuAnchor({ x: e.clientX, y: e.clientY });
+          setMenuOpen(true);
+        }}
       >
         {!status && <FileIcon className="size-3 shrink-0 text-muted-foreground" />}
         <span className="min-w-0 flex-1 truncate text-left font-mono" title={path}>
@@ -122,38 +118,41 @@ function FileRow({
           )}
         </button>
         {status && <StatusLetter status={status} />}
-      </MenuTrigger>
-      <MenuPopup
-        anchor={
-          menuAnchor
-            ? {
-                getBoundingClientRect: () =>
-                  DOMRect.fromRect({ x: menuAnchor.x, y: menuAnchor.y, width: 0, height: 0 }),
-              }
-            : undefined
-        }
-      >
-        <MenuItem onClick={onClickFile}>Open File</MenuItem>
-        <MenuSeparator />
-        {onStage && <MenuItem onClick={onStage}>Stage Changes</MenuItem>}
-        {onUnstage && <MenuItem onClick={onUnstage}>Unstage Changes</MenuItem>}
-        {onDiscard && (
-          <MenuItem onClick={onDiscard} variant="destructive">
-            <Undo2Icon className="size-3.5" />
-            Discard Changes
-          </MenuItem>
-        )}
-        {onStash && (
-          <>
-            <MenuSeparator />
-            <MenuItem onClick={onStash}>
-              <PackageIcon className="size-3.5" />
-              Stash File
+      </div>
+      <Menu open={menuOpen} onOpenChange={setMenuOpen}>
+        <MenuTrigger render={<span className="hidden" />} />
+        <MenuPopup
+          anchor={
+            menuAnchor
+              ? {
+                  getBoundingClientRect: () =>
+                    DOMRect.fromRect({ x: menuAnchor.x, y: menuAnchor.y, width: 0, height: 0 }),
+                }
+              : undefined
+          }
+        >
+          <MenuItem onClick={onClickFile}>View Diff</MenuItem>
+          <MenuSeparator />
+          {onStage && <MenuItem onClick={onStage}>Stage Changes</MenuItem>}
+          {onUnstage && <MenuItem onClick={onUnstage}>Unstage Changes</MenuItem>}
+          {onDiscard && (
+            <MenuItem onClick={onDiscard} variant="destructive">
+              <Undo2Icon className="size-3.5" />
+              Discard Changes
             </MenuItem>
-          </>
-        )}
-      </MenuPopup>
-    </Menu>
+          )}
+          {onStash && (
+            <>
+              <MenuSeparator />
+              <MenuItem onClick={onStash}>
+                <PackageIcon className="size-3.5" />
+                Stash File
+              </MenuItem>
+            </>
+          )}
+        </MenuPopup>
+      </Menu>
+    </>
   );
 }
 
@@ -201,6 +200,7 @@ export default memo(function ChangesSection({
   const commitMessage = useGitPanelStore((s) => s.stateByThreadId[threadId]?.commitMessage ?? "");
   const setCommitMessage = useGitPanelStore((s) => s.setCommitMessage);
   const setActiveTab = useGitPanelStore((s) => s.setActiveTab);
+  const setActiveDiffFile = useGitPanelStore((s) => s.setActiveDiffFile);
   const openFile = useFileEditorStore((s) => s.openFile);
 
   const [stashDialogOpen, setStashDialogOpen] = useState(false);
@@ -310,6 +310,13 @@ export default memo(function ChangesSection({
       },
     });
   }, [generateMutation, setCommitMessage, threadId]);
+
+  const openDiffForFile = useCallback(
+    (filePath: string, staged: boolean) => {
+      setActiveDiffFile(threadId, { path: filePath, staged });
+    },
+    [threadId, setActiveDiffFile],
+  );
 
   const openFileInEditor = useCallback(
     (filePath: string) => {
@@ -536,7 +543,7 @@ export default memo(function ChangesSection({
                   status={file.status}
                   actionIcon="unstage"
                   onAction={() => unstageFiles([file.path])}
-                  onClickFile={() => openFileInEditor(file.path)}
+                  onClickFile={() => openDiffForFile(file.path, true)}
                   onStage={() => stageFiles([file.path])}
                   onUnstage={() => unstageFiles([file.path])}
                   onDiscard={() => discardFiles([file.path])}
@@ -574,7 +581,7 @@ export default memo(function ChangesSection({
                   status={file.status}
                   actionIcon="stage"
                   onAction={() => stageFiles([file.path])}
-                  onClickFile={() => openFileInEditor(file.path)}
+                  onClickFile={() => openDiffForFile(file.path, false)}
                   onStage={() => stageFiles([file.path])}
                   onDiscard={() => discardFiles([file.path])}
                   onStash={() => openStashDialog([file.path])}

@@ -13,11 +13,17 @@ export interface ActivityLogEntry {
   durationMs?: number;
 }
 
+export interface GitDiffFile {
+  path: string;
+  staged: boolean;
+}
+
 interface ThreadGitPanelState {
   open: boolean;
   activeTab: GitPanelTab;
   activityLogExpanded: boolean;
   commitMessage: string;
+  activeDiffFile: GitDiffFile | null;
 }
 
 const GIT_PANEL_STATE_STORAGE_KEY = "t3code:git-panel-state:v2";
@@ -27,6 +33,7 @@ const DEFAULT_THREAD_STATE: ThreadGitPanelState = Object.freeze({
   activeTab: "graph" as GitPanelTab,
   activityLogExpanded: false,
   commitMessage: "",
+  activeDiffFile: null,
 });
 
 function selectThreadState(
@@ -47,6 +54,7 @@ interface GitPanelStoreState {
   closePanel: (threadId: ThreadId) => void;
   setActiveTab: (threadId: ThreadId, tab: GitPanelTab) => void;
   setCommitMessage: (threadId: ThreadId, message: string) => void;
+  setActiveDiffFile: (threadId: ThreadId, file: GitDiffFile | null) => void;
   toggleActivityLog: (threadId: ThreadId) => void;
   addLogEntry: (entry: ActivityLogEntry) => void;
   updateLogEntry: (
@@ -110,6 +118,9 @@ export const useGitPanelStore = create<GitPanelStoreState>()(
             return { ...state, commitMessage: message };
           }),
 
+        setActiveDiffFile: (threadId, file) =>
+          updateThread(threadId, (state) => ({ ...state, activeDiffFile: file })),
+
         toggleActivityLog: (threadId) =>
           updateThread(threadId, (state) => ({
             ...state,
@@ -154,23 +165,30 @@ export const useGitPanelStore = create<GitPanelStoreState>()(
     },
     {
       name: GIT_PANEL_STATE_STORAGE_KEY,
-      version: 2,
+      version: 3,
       storage: createJSONStorage(() => localStorage),
       partialize: (state) => ({
-        stateByThreadId: state.stateByThreadId,
+        stateByThreadId: Object.fromEntries(
+          Object.entries(state.stateByThreadId).map(([id, ts]) => {
+            // Strip transient activeDiffFile from persistence
+            const { activeDiffFile: _, ...rest } = ts;
+            return [id, { ...rest, activeDiffFile: null }];
+          }),
+        ),
       }),
       migrate: (persisted: unknown, version: number) => {
-        if (version < 2) {
-          const state = persisted as { stateByThreadId: Record<string, ThreadGitPanelState> };
-          for (const threadId of Object.keys(state.stateByThreadId)) {
-            const ts = state.stateByThreadId[threadId];
-            if (ts && (ts.activeTab as string) === "changes") {
-              ts.activeTab = "graph";
-            }
+        const state = persisted as { stateByThreadId: Record<string, ThreadGitPanelState> };
+        for (const threadId of Object.keys(state.stateByThreadId)) {
+          const ts = state.stateByThreadId[threadId];
+          if (!ts) continue;
+          if (version < 2 && (ts.activeTab as string) === "changes") {
+            ts.activeTab = "graph";
           }
-          return state;
+          if (version < 3) {
+            ts.activeDiffFile = null;
+          }
         }
-        return persisted;
+        return state;
       },
     },
   ),

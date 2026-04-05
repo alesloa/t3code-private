@@ -213,6 +213,7 @@ export function createWsNativeApi(): NativeApi {
       stashRestoreFile: (input) => transport.request(WS_METHODS.gitStashRestoreFile, input),
       softReset: (input) => transport.request(WS_METHODS.gitSoftReset, input),
       revertCommit: (input) => transport.request(WS_METHODS.gitRevertCommit, input),
+      fileDiff: (input) => transport.request(WS_METHODS.gitFileDiff, input),
       generateCommitMessage: (input) =>
         transport.request(WS_METHODS.gitGenerateCommitMessage, input, { timeoutMs: 60_000 }),
       listWorktrees: (input) => transport.request(WS_METHODS.gitListWorktrees, input),

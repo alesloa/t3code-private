@@ -29,6 +29,7 @@ import { useStore } from "~/store";
 
 import { type GitPanelMode, GitPanelShell } from "./GitPanelShell";
 import ChangesSection from "./GitPanel/ChangesSection";
+import GitFileDiffViewer from "./GitPanel/GitFileDiffViewer";
 
 const ActivityLog = lazy(() => import("./GitPanel/ActivityLog"));
 const BranchesTab = lazy(() => import("./GitPanel/BranchesTab"));
@@ -67,6 +68,9 @@ const GitPanel = memo(function GitPanel({
   const gitCwd = useGitCwd(threadId);
   const threadState = useGitPanelStore(
     (s) => s.stateByThreadId[threadId] ?? { activeTab: "graph", activityLogExpanded: false },
+  );
+  const activeDiffFile = useGitPanelStore(
+    (s) => s.stateByThreadId[threadId]?.activeDiffFile ?? null,
   );
   const setActiveTab = useGitPanelStore((s) => s.setActiveTab);
   const closePanel = useGitPanelStore((s) => s.closePanel);
@@ -195,6 +199,15 @@ const GitPanel = memo(function GitPanel({
       </Button>
     </>
   );
+
+  // When a file diff is active, show the full-panel diff viewer
+  if (activeDiffFile && gitCwd) {
+    return (
+      <GitPanelShell mode={mode} header={header}>
+        <GitFileDiffViewer gitCwd={gitCwd} threadId={threadId} diffFile={activeDiffFile} />
+      </GitPanelShell>
+    );
+  }
 
   return (
     <GitPanelShell mode={mode} header={header}>

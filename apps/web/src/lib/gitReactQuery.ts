@@ -20,6 +20,8 @@ export const gitQueryKeys = {
     ["git", "stashShowFiles", cwd, index] as const,
   stashShowFile: (cwd: string | null, index: number, filePath: string) =>
     ["git", "stashShowFile", cwd, index, filePath] as const,
+  fileDiff: (cwd: string | null, filePath: string, staged: boolean) =>
+    ["git", "fileDiff", cwd, filePath, staged] as const,
   worktrees: (cwd: string | null) => ["git", "worktrees", cwd] as const,
   pullRequests: (cwd: string | null, state: string) => ["git", "pullRequests", cwd, state] as const,
   log: (cwd: string | null, branch?: string, skip?: number) =>
@@ -530,6 +532,23 @@ export function gitStashShowFileQueryOptions(
     },
     enabled: cwd !== null && filePath !== null,
     staleTime: Number.POSITIVE_INFINITY,
+  });
+}
+
+export function gitFileDiffQueryOptions(
+  cwd: string | null,
+  filePath: string | null,
+  staged: boolean,
+) {
+  return queryOptions({
+    queryKey: gitQueryKeys.fileDiff(cwd, filePath ?? "", staged),
+    queryFn: async () => {
+      const api = ensureNativeApi();
+      if (!cwd || !filePath) throw new Error("Git file diff is unavailable.");
+      return api.git.fileDiff({ cwd, filePath, staged });
+    },
+    enabled: cwd !== null && filePath !== null,
+    staleTime: 3_000,
   });
 }
 
